@@ -14,6 +14,9 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// 🆕 전역 시뮬레이터 인스턴스
+var agvSimulator *services.AGVSimulator
+
 func main() {
 	// .env 파일 로드
 	if err := godotenv.Load(); err != nil {
@@ -25,14 +28,15 @@ func main() {
 		log.Fatalf("❌ DB 초기화 실패: %v", err)
 	}
 
-	// 🆕 로깅 시스템 초기화
-	// flushSize: 50 (로그 50개마다 일괄 저장)
-	// flushInterval: 10초 (매 10초마다 자동 저장)
+	// 로깅 시스템 초기화
 	services.InitLogging(50, 10*time.Second)
-	defer services.StopLogging() // 종료 시 남은 로그 저장
+	defer services.StopLogging()
 
-	// LLM 서비스 초기화 (Ollama)
+	// LLM 서비스 초기화
 	handlers.InitLLMService()
+
+	// 🆕 AGV 시뮬레이터 초기화
+	agvSimulator = services.NewAGVSimulator(handlers.Manager.BroadcastMessage)
 
 	app := fiber.New()
 
@@ -65,12 +69,55 @@ func main() {
 	// 경로 탐색
 	api.Post("/pathfinding", handlers.HandlePathfinding)
 
-	// 🆕 로그 조회 API
+	// 로그 조회 API
 	logsAPI := api.Group("/logs")
-	logsAPI.Get("/recent", handlers.HandleGetRecentLogs)          // 최근 로그
-	logsAPI.Get("/range", handlers.HandleGetLogsByTimeRange)      // 시간 범위
-	logsAPI.Get("/type", handlers.HandleGetLogsByEventType)       // 이벤트 타입별
-	logsAPI.Get("/stats", handlers.HandleGetLogStats)             // 통계
+	logsAPI.Get("/recent", handlers.HandleGetRecentLogs)
+	logsAPI.Get("/range", handlers.HandleGetLogsByTimeRange)
+	logsAPI.Get("/type", handlers.HandleGetLogsByEventType)
+	logsAPI.Get("/stats", handlers.HandleGetLogStats)
+
+	// 🆕 시뮬레이터 API
+	simAPI := api.Group("/simulator")
+	simAPI.Post("/start", func(c *fiber.Ctx) error {
+		if agvSimulator.IsRunning {
+			return c.Status(400).JSON(fiber.Map{
+				"success": false,
+				"message": "시뮬레이터가 이미 실행 중입니다",
+			})
+		}
+		agvSimulator.Start()
+		return c.JSON(fiber.Map{
+			"success": true,
+			"message": "AGV 시뮬레이터 시작",
+		})
+	})
+
+	simAPI.Post("/stop", func(c *fiber.Ctx) error {
+		if !agvSimulator.IsRunning {
+			return c.Status(400).JSON(fiber.Map{
+				"success": false,
+				"message": "시뮬레이터가 실행 중이 아닙니다",
+			})
+		}
+		agvSimulator.Stop()
+		return c.JSON(fiber.Map{
+			"success": true,
+			"message": "AGV 시뮬레이터 중지",
+		})
+	})
+
+	simAPI.Get("/status", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{
+			"success":   true,
+			"running":   agvSimulator.IsRunning,
+			"agv_state": agvSimulator.Status,
+			"enemies":   agvSimulator.Enemies,
+			"map_size": fiber.Map{
+				"width":  agvSimulator.MapWidth,
+				"height": agvSimulator.MapHeight,
+			},
+		})
+	})
 
 	// 테스트용 위치 데이터 전송
 	api.Post("/test/position", func(c *fiber.Ctx) error {
@@ -86,8 +133,6 @@ func main() {
 		}
 
 		handlers.Manager.BroadcastMessage(testMsg)
-
-		// 🆕 로그 저장
 		services.LogAGVPosition("sion-001", testMsg.Data.(models.PositionData))
 
 		return c.JSON(fiber.Map{
@@ -110,8 +155,6 @@ func main() {
 		}
 
 		handlers.Manager.BroadcastMessage(testMsg)
-
-		// 🆕 로그 저장
 		services.LogWebSocketMessage("sion-001", testMsg)
 
 		return c.JSON(fiber.Map{
@@ -122,7 +165,6 @@ func main() {
 
 	// 테스트용 AGV 이벤트 트리거
 	api.Post("/test/event", func(c *fiber.Ctx) error {
-		// 테스트 AGV 상태 생성
 		testStatus := &models.AGVStatus{
 			ID:   "sion-001",
 			Name: "사이온",
@@ -155,15 +197,12 @@ func main() {
 			},
 		}
 
-		// 🆕 상태 로그 저장
 		services.LogAGVStatus("sion-001", testStatus)
 
-		// 🆕 타겟 발견 로그
 		if testStatus.TargetEnemy != nil {
 			services.LogTargetFound("sion-001", testStatus.TargetEnemy)
 		}
 
-		// 이벤트 설명 생성
 		handlers.ExplainAGVEvent("target_change", testStatus)
 
 		return c.JSON(fiber.Map{
@@ -189,5 +228,6 @@ func main() {
 	log.Println("💬 채팅 API: POST http://localhost:3000/api/chat")
 	log.Println("🧪 이벤트 테스트: POST http://localhost:3000/api/test/event")
 	log.Println("💾 로그 API: GET http://localhost:3000/api/logs/*")
+	log.Println("🤖 시뮬레이터 API: POST http://localhost:3000/api/simulator/*")
 	log.Fatal(app.Listen(":3000"))
 }

@@ -25,6 +25,12 @@ func main() {
 		log.Fatalf("❌ DB 초기화 실패: %v", err)
 	}
 
+	// 🆕 로깅 시스템 초기화
+	// flushSize: 50 (로그 50개마다 일괄 저장)
+	// flushInterval: 10초 (매 10초마다 자동 저장)
+	services.InitLogging(50, 10*time.Second)
+	defer services.StopLogging() // 종료 시 남은 로그 저장
+
 	// LLM 서비스 초기화 (Ollama)
 	handlers.InitLLMService()
 
@@ -53,11 +59,18 @@ func main() {
 		})
 	})
 
-	// 🆕 채팅 엔드포인트
+	// 채팅 엔드포인트
 	api.Post("/chat", handlers.HandleChat)
 
 	// 경로 탐색
 	api.Post("/pathfinding", handlers.HandlePathfinding)
+
+	// 🆕 로그 조회 API
+	logsAPI := api.Group("/logs")
+	logsAPI.Get("/recent", handlers.HandleGetRecentLogs)          // 최근 로그
+	logsAPI.Get("/range", handlers.HandleGetLogsByTimeRange)      // 시간 범위
+	logsAPI.Get("/type", handlers.HandleGetLogsByEventType)       // 이벤트 타입별
+	logsAPI.Get("/stats", handlers.HandleGetLogStats)             // 통계
 
 	// 테스트용 위치 데이터 전송
 	api.Post("/test/position", func(c *fiber.Ctx) error {
@@ -73,6 +86,9 @@ func main() {
 		}
 
 		handlers.Manager.BroadcastMessage(testMsg)
+
+		// 🆕 로그 저장
+		services.LogAGVPosition("sion-001", testMsg.Data.(models.PositionData))
 
 		return c.JSON(fiber.Map{
 			"success": true,
@@ -95,13 +111,16 @@ func main() {
 
 		handlers.Manager.BroadcastMessage(testMsg)
 
+		// 🆕 로그 저장
+		services.LogWebSocketMessage("sion-001", testMsg)
+
 		return c.JSON(fiber.Map{
 			"success": true,
 			"message": "상태 데이터 전송 성공",
 		})
 	})
 
-	// 🆕 테스트용 AGV 이벤트 트리거
+	// 테스트용 AGV 이벤트 트리거
 	api.Post("/test/event", func(c *fiber.Ctx) error {
 		// 테스트 AGV 상태 생성
 		testStatus := &models.AGVStatus{
@@ -115,25 +134,33 @@ func main() {
 			Speed:   2.5,
 			Battery: 85,
 			TargetEnemy: &models.Enemy{
-				ID:       "enemy-1", // ✅ string으로 변경
+				ID:       "enemy-1",
 				Name:     "아리",
-				HP:       30, // ✅ int로 변경
+				HP:       30,
 				Position: models.PositionData{X: 15, Y: 12},
 			},
 			DetectedEnemies: []models.Enemy{
 				{
-					ID:       "enemy-1", // ✅ string으로 변경
+					ID:       "enemy-1",
 					Name:     "아리",
-					HP:       30, // ✅ int로 변경
+					HP:       30,
 					Position: models.PositionData{X: 15, Y: 12},
 				},
 				{
-					ID:       "enemy-2", // ✅ string으로 변경
+					ID:       "enemy-2",
 					Name:     "아리",
-					HP:       80, // ✅ int로 변경
+					HP:       80,
 					Position: models.PositionData{X: 20, Y: 18},
 				},
 			},
+		}
+
+		// 🆕 상태 로그 저장
+		services.LogAGVStatus("sion-001", testStatus)
+
+		// 🆕 타겟 발견 로그
+		if testStatus.TargetEnemy != nil {
+			services.LogTargetFound("sion-001", testStatus.TargetEnemy)
 		}
 
 		// 이벤트 설명 생성
@@ -161,5 +188,6 @@ func main() {
 	log.Println("📡 WebSocket: ws://localhost:3000/websocket/web")
 	log.Println("💬 채팅 API: POST http://localhost:3000/api/chat")
 	log.Println("🧪 이벤트 테스트: POST http://localhost:3000/api/test/event")
+	log.Println("💾 로그 API: GET http://localhost:3000/api/logs/*")
 	log.Fatal(app.Listen(":3000"))
 }

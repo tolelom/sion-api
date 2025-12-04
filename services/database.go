@@ -60,56 +60,12 @@ func GetDB() *gorm.DB {
 	return db
 }
 
-// LogAGVEvent - AGV 이벤트 로깅
+// 🆕 LogAGVEvent - AGV 이벤트 로깅 (호환성 유지용)
+// 새로운 logging.go의 함수를 사용하는 것을 권장합니다.
 func LogAGVEvent(msg models.WebSocketMessage, agvID string, userID string) error {
-	logEntry := models.AGVLog{
-		AGVID:       agvID,
-		MessageType: msg.Type,
-		EventType:   inferEventType(msg.Type),
-		DataJSON:    marshalMessageData(msg.Data),
-		UserID:      userID,
-	}
-
-	// 위치 업데이트 처리
-	if posData, ok := msg.Data.(map[string]interface{}); ok {
-		if x, ok := posData["x"].(float64); ok {
-			logEntry.PositionX = x
-		}
-		if y, ok := posData["y"].(float64); ok {
-			logEntry.PositionY = y
-		}
-		if angle, ok := posData["angle"].(float64); ok {
-			logEntry.PositionAngle = angle
-		}
-	}
-
-	// 상태 업데이트 처리
-	if statusData, ok := msg.Data.(map[string]interface{}); ok {
-		if speed, ok := statusData["speed"].(float64); ok {
-			logEntry.Speed = speed
-		}
-		if battery, ok := statusData["battery"].(float64); ok {
-			logEntry.Battery = int(battery)
-		}
-		if mode, ok := statusData["mode"].(string); ok {
-			logEntry.Mode = mode
-		}
-		if state, ok := statusData["state"].(string); ok {
-			logEntry.State = state
-		}
-	}
-
-	// 명령 처리
-	if cmdData, ok := msg.Data.(map[string]interface{}); ok {
-		if targetX, ok := cmdData["target_x"].(float64); ok {
-			logEntry.TargetX = targetX
-		}
-		if targetY, ok := cmdData["target_y"].(float64); ok {
-			logEntry.TargetY = targetY
-		}
-	}
-
-	return db.Create(&logEntry).Error
+	// 새로운 logging 서비스 사용
+	LogWebSocketMessage(agvID, msg)
+	return nil
 }
 
 // GetRecentLogs - 최근 로그 조회 (LLM 컨텍스트용)
@@ -120,28 +76,6 @@ func GetRecentLogs(agvID string, limit int) ([]models.AGVLog, error) {
 		Limit(limit).
 		Find(&logs).Error
 	return logs, err
-}
-
-// inferEventType - 메시지 타입에서 이벤트 타입 추론
-func inferEventType(msgType string) string {
-	switch msgType {
-	case "position":
-		return "move"
-	case "status":
-		return "status_change"
-	case "target_found":
-		return "target_detected"
-	case "chat":
-		return "user_question"
-	case "command":
-		return "command_received"
-	case "chat_response":
-		return "ai_response"
-	case "agv_event":
-		return "event_description"
-	default:
-		return msgType
-	}
 }
 
 // marshalMessageData - 메시지 데이터 JSON 직렬화 (간단 구현)

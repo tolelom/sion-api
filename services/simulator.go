@@ -15,7 +15,7 @@ type AGVSimulator struct {
 	MapWidth       float64
 	MapHeight      float64
 	Enemies        []models.Enemy
-	Obstacles      []models.Obstacle // 🔁 models.Position → models.Obstacle
+	Obstacles      []models.Obstacle
 	IsRunning      bool
 	UpdateInterval time.Duration
 	BroadcastFunc  func(models.WebSocketMessage)
@@ -197,8 +197,8 @@ func (sim *AGVSimulator) attackTarget() {
 
 func (sim *AGVSimulator) consumeBattery() {
 	if sim.Status.Speed > 0 {
-		// 0.1을 float64로 명시해 암묵적 int 변환 경고 방지
-		sim.Status.Battery -= 0.1
+		// Battery는 int 타입이므로 정수 단위로 감소시킨다.
+		sim.Status.Battery -= 1
 		if sim.Status.Battery < 0 {
 			sim.Status.Battery = 0
 			sim.Status.State = models.StateStopped
@@ -209,7 +209,7 @@ func (sim *AGVSimulator) consumeBattery() {
 
 	if sim.Status.Battery <= 20 && sim.Status.Battery > 0 {
 		if rand.Float64() < 0.05 {
-			log.Printf("⚠️ 배터리 부족: %.1f%%", sim.Status.Battery)
+			log.Printf("⚠️ 배터리 부족: %d%%", sim.Status.Battery)
 		}
 	}
 }

@@ -235,9 +235,34 @@ func (sim *AGVSimulator) distanceTo(x, y float64) float64 {
 	return math.Sqrt(dx*dx + dy*dy)
 }
 
+// broadcastStatus - WebSocket으로 상태 브로드캐스트
 func (sim *AGVSimulator) broadcastStatus() {
 	if sim.BroadcastFunc == nil {
 		return
+	}
+
+	// 🆕 적들을 평탄화 (Frontend가 바로 사용 가능)
+	flatEnemies := make([]map[string]interface{}, len(sim.Status.DetectedEnemies))
+	for i, enemy := range sim.Status.DetectedEnemies {
+		flatEnemies[i] = map[string]interface{}{
+			"id":   enemy.ID,
+			"name": enemy.Name,
+			"hp":   enemy.HP,
+			"x":    enemy.Position.X,
+			"y":    enemy.Position.Y,
+		}
+	}
+
+	// 🆕 현재 타겟도 평탄화
+	var flatTarget map[string]interface{}
+	if sim.Status.TargetEnemy != nil {
+		flatTarget = map[string]interface{}{
+			"id":   sim.Status.TargetEnemy.ID,
+			"name": sim.Status.TargetEnemy.Name,
+			"hp":   sim.Status.TargetEnemy.HP,
+			"x":    sim.Status.TargetEnemy.Position.X,
+			"y":    sim.Status.TargetEnemy.Position.Y,
+		}
 	}
 
 	statusMsg := models.WebSocketMessage{
@@ -247,8 +272,8 @@ func (sim *AGVSimulator) broadcastStatus() {
 			"speed":            sim.Status.Speed,
 			"mode":             sim.Status.Mode,
 			"state":            sim.Status.State,
-			"detected_enemies": sim.Status.DetectedEnemies,
-			"target_enemy":     sim.Status.TargetEnemy,
+			"detected_enemies": flatEnemies,  // ✅ 평탄화된 배열
+			"target_enemy":     flatTarget,   // ✅ 평탄화된 객체 (nil이면 null)
 		},
 		Timestamp: time.Now().UnixMilli(),
 	}

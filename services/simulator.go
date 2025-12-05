@@ -15,7 +15,7 @@ type AGVSimulator struct {
 	MapWidth       float64
 	MapHeight      float64
 	Enemies        []models.Enemy
-	Obstacles      []models.Position
+	Obstacles      []models.Obstacle // 🔁 models.Position → models.Obstacle
 	IsRunning      bool
 	UpdateInterval time.Duration
 	BroadcastFunc  func(models.WebSocketMessage)
@@ -197,6 +197,7 @@ func (sim *AGVSimulator) attackTarget() {
 
 func (sim *AGVSimulator) consumeBattery() {
 	if sim.Status.Speed > 0 {
+		// 0.1을 float64로 명시해 암묵적 int 변환 경고 방지
 		sim.Status.Battery -= 0.1
 		if sim.Status.Battery < 0 {
 			sim.Status.Battery = 0
@@ -285,12 +286,18 @@ func generateRandomEnemies(count int, mapWidth, mapHeight float64) []models.Enem
 	return enemies
 }
 
-func generateRandomObstacles(count int, mapWidth, mapHeight float64) []models.Position {
-	obstacles := make([]models.Position, count)
+// generateRandomObstacles - 랜덤 장애물 생성
+func generateRandomObstacles(count int, mapWidth, mapHeight float64) []models.Obstacle {
+	obstacles := make([]models.Obstacle, count)
 	for i := 0; i < count; i++ {
-		obstacles[i] = models.Position{
-			X: rand.Float64() * mapWidth,
-			Y: rand.Float64() * mapHeight,
+		obstacles[i] = models.Obstacle{
+			ID:   fmt.Sprintf("obstacle-%d", i+1),
+			Type: "static",
+			Position: models.GridCoordinate{
+				Row: rand.Intn(int(mapHeight)),
+				Col: rand.Intn(int(mapWidth)),
+			},
+			Size: 1,
 		}
 	}
 	return obstacles

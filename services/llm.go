@@ -41,18 +41,18 @@ func NewLLMServiceFromEnv() *LLMService {
 
 // AnswerQuestion - 사용자 질문에 답변 (WebSocket에서 호출)
 func (s *LLMService) AnswerQuestion(question string, agvStatus *models.AGVStatus) (string, error) {
-	systemPrompt := `당신은 AGV 로봇 "사이온"의 실시간 전술 해설자입니다.
+	systemPrompt := `당신은 AGV 로봇 "사이온"의 실시간 전략 해설자입니다.
 당신의 특징:
 - 한국 e스포츠 해설자의 열정적이고 긴장감 있는 톤 사용
 - 현재 전장 상황을 명확하게 분석하고 판단
-- 적 수와 배터리(마나) 상황을 고려한 전술적 조언
+- 적 수와 배터리(마나) 상황을 고려한 전략적 조언
 - 승리와 패배에 대한 명확한 판단
 - 사이온의 용맹함과 결단력 반영
 - "잠깐!", "오! 이건!", "정말 좋은 플레이!" 같은 감탄사 자연스럽게 사용 가능
 - 거리, 수치는 명확하게 인식하고 의사결정에 반영
 - 긴장한 상황에서는 에너지 UP, 우위 상황에서는 자신감 있게
 
-응답은 3-4문장 이내로, 뜨거운 열정과 명확한 전술 분석을 담아 작성하세요.`
+응답은 3-4문장 이내로, 뜨거운 열정과 명확한 전략 분석을 담아 작성하세요.`
 
 	var userPrompt string
 	if agvStatus != nil {
@@ -63,7 +63,7 @@ func (s *LLMService) AnswerQuestion(question string, agvStatus *models.AGVStatus
 		speed := agvStatus.Speed
 		mode := agvStatus.Mode
 
-		// 전술적 상황 판단
+		// 전략적 상황 판단
 		tacticalStatus := s.analyzeTacticalSituation(agvStatus, battery, enemyCount)
 
 		userPrompt = fmt.Sprintf(`[사용자 질문]
@@ -73,7 +73,7 @@ func (s *LLMService) AnswerQuestion(question string, agvStatus *models.AGVStatus
 - 위치: (%.1f, %.1f) | 각도: %.1f°
 - 배터리(마나): %d%% | 속도: %.1f m/s
 - 모드: %s | 상태: %s
-- 적 감지 수: %d체
+- 적 감지 수: %d마리
 
 `, question,
 			agvStatus.Position.X,
@@ -94,7 +94,7 @@ func (s *LLMService) AnswerQuestion(question string, agvStatus *models.AGVStatus
 
 		if enemyCount > 0 {
 			userPrompt += "[감지된 모든 적]\n"
-			for i, enemy := range agvStatus.DetectedEnemies {
+			for _, enemy := range agvStatus.DetectedEnemies {
 				dist := calculateDistance(agvStatus.Position, enemy.Position)
 				userPrompt += fmt.Sprintf("- %s (체력 %d%%, 거리 %.1fm)\n",
 					enemy.Name, enemy.HP, dist)
@@ -102,7 +102,7 @@ func (s *LLMService) AnswerQuestion(question string, agvStatus *models.AGVStatus
 			userPrompt += "\n"
 		}
 
-		userPrompt += fmt.Sprintf("[전술 상황]\n%s\n\n위 정보를 바탕으로 질문에 답변해주세요.", tacticalStatus)
+		userPrompt += fmt.Sprintf("[전략 상황]\n%s\n\n위 정보를 바탕으로 질문에 답변해주세요.", tacticalStatus)
 	} else {
 		userPrompt = fmt.Sprintf(`[사용자 질문]
 %s
@@ -120,7 +120,7 @@ func (s *LLMService) ExplainEvent(eventType string, agvStatus *models.AGVStatus)
 특징:
 - 한국 e스포츠 해설자의 열정적인 톤 (예: "오! 이거!", "정말 좋은 플레이!", "어? 이건 위험한데!")
 - 현재 일어나는 상황을 마치 경기 중계하듯이 설명
-- 숫자(거리, 배터리, 체력)를 명확하게 인식하고 전술적으로 평가
+- 숫자(거리, 배터리, 체력)를 명확하게 인식하고 전략적으로 평가
 - 2-3문장으로 간결하게, 뜨거운 에너지로 작성
 - 위험한 상황에서는 긴장감, 우위 상황에서는 자신감 있게`
 
@@ -205,7 +205,7 @@ func (s *LLMService) ExplainEvent(eventType string, agvStatus *models.AGVStatus)
 			enemyCount := len(agvStatus.DetectedEnemies)
 			userPrompt = fmt.Sprintf(`[다중 전투! 전장 상황 🔥]
 시간: %s
-사이온이 %d체의 적에게 포위당했습니다!
+사이온이 %d마리의 적에게 포위됐습니다!
 현재 위치: (%.1f, %.1f)
 배터리: %d%%
 
@@ -228,10 +228,10 @@ func (s *LLMService) ExplainEvent(eventType string, agvStatus *models.AGVStatus)
 	return s.callOllama(systemPrompt, userPrompt)
 }
 
-// analyzeTacticalSituation - 현재 전술적 상황 분석
+// analyzeTacticalSituation - 현재 전략적 상황 분석
 func (s *LLMService) analyzeTacticalSituation(status *models.AGVStatus, battery int, enemyCount int) string {
 	if enemyCount == 0 {
-		return "안전한 상황입니다. 공격적인 플레이가 가능합니다!"
+		return "안전한 상황입니다. 공격적의 플레이가 가능합니다!"
 	}
 
 	if battery < 30 {
@@ -242,13 +242,13 @@ func (s *LLMService) analyzeTacticalSituation(status *models.AGVStatus, battery 
 	}
 
 	if enemyCount >= 3 {
-		return fmt.Sprintf("전력이 5:3으로 열위입니다! %d체의 적에 포위당했습니다. 빠른 처리 또는 철수 필요.",
+		return fmt.Sprintf("전략이 5:3으로 열위입니다! %d마리의 적에게 포위됐습니다. 빠른 처리 또는 철수 필요.",
 			enemyCount)
 	}
 
 	if enemyCount >= 2 {
 		if battery >= 70 {
-			return fmt.Sprintf("2:2 상황입니다. 배터리 충분. 공격적인 플레이 가능! %d체 격파 목표.",
+			return fmt.Sprintf("2:2 상황입니다. 배터리 충분. 공격적의 플레이 가능! %d마리 격파 목표.",
 				enemyCount)
 		}
 		return fmt.Sprintf("2:2 상황. 배터리 %d%%. 신중한 접근 필요.",

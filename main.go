@@ -42,7 +42,7 @@ func main() {
 
 	app.Use(logger.New())
 	app.Use(cors.New(cors.Config{
-		AllowOrigins: "http://localhost:5173, http://localhost:3000, http://sion.tolelom.xyz",
+		AllowOrigins: "http://localhost:5173, http://localhost:8001, http://sion.tolelom.xyz",
 		AllowHeaders: "Origin, Content-Type, Accept",
 		AllowMethods: "GET, POST, PUT, DELETE, OPTIONS",
 	}))
@@ -223,11 +223,11 @@ func main() {
 	app.Get("/websocket/agv", websocket.New(handlers.HandleAGVWebSocket))
 	app.Get("/websocket/web", websocket.New(handlers.HandleWebClientWebSocket))
 
-	log.Println("🚀 서버 시작: http://localhost:3000")
-	log.Println("📡 WebSocket: ws://localhost:3000/websocket/web")
-	log.Println("💬 채팅 API: POST http://localhost:3000/api/chat")
-	log.Println("🧪 이벤트 테스트: POST http://localhost:3000/api/test/event")
-	log.Println("💾 로그 API: GET http://localhost:3000/api/logs/*")
-	log.Println("🤖 시뮬레이터 API: POST http://localhost:3000/api/simulator/*")
-	log.Fatal(app.Listen(":3000"))
+	log.Println("🚀 서버 시작: http://localhost:8001")
+	log.Println("📡 WebSocket: ws://localhost:8001/websocket/web")
+	log.Println("💬 채팅 API: POST http://localhost:8001/api/chat")
+	log.Println("🧪 이벤트 테스트: POST http://localhost:8001/api/test/event")
+	log.Println("💾 로그 API: GET http://localhost:8001/api/logs/*")
+	log.Println("🤖 시뮬레이터 API: POST http://localhost:8001/api/simulator/*")
+	log.Fatal(app.Listen(":8001"))
 }

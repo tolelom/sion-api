@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"log"
 	"sion-backend/models"
 	"sion-backend/services"
@@ -14,23 +15,46 @@ func NewWebHandler(cm *services.ClientManager, broker *services.Broker, llm *ser
 		cm.Register(c, services.WebClient)
 		defer cm.Unregister(c)
 
-		// 환영 메시지
+		// Welcome 메시지 (AGV 연결 상태 + 현재 상태 스냅샷 포함)
+		welcomeData := map[string]interface{}{
+			"message":       "웹 클라이언트 연결됨",
+			"connected_at":  time.Now().Format(time.RFC3339),
+			"agv_connected": broker.IsAGVConnected(),
+		}
+		if agvStatus := broker.GetAGVStatus(); agvStatus != nil {
+			welcomeData["agv_status"] = agvStatus
+		}
 		welcomeMsg := models.WebSocketMessage{
-			Type: models.MessageTypeSystemInfo,
-			Data: map[string]interface{}{
-				"message":      "웹 클라이언트 연결됨",
-				"connected_at": time.Now().Format(time.RFC3339),
-			},
+			Type:      models.MessageTypeSystemInfo,
+			Data:      welcomeData,
 			Timestamp: time.Now().UnixMilli(),
 		}
 		_ = c.WriteJSON(welcomeMsg)
 
 		for {
-			var msg models.WebSocketMessage
-			if err := c.ReadJSON(&msg); err != nil {
-				log.Printf("웹 메시지 읽기 오류: %v", err)
+			_, p, err := c.ReadMessage()
+			if err != nil {
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+					log.Printf("WARN: 웹 비정상 종료: %v", err)
+				} else {
+					log.Printf("INFO: 웹 연결 종료")
+				}
 				break
 			}
+
+			var msg models.WebSocketMessage
+			if err := json.Unmarshal(p, &msg); err != nil {
+				log.Printf("WARN: 웹 메시지 파싱 오류 (연결 유지): %v", err)
+				// 웹 클라이언트에 에러 응답 전송
+				errMsg := models.WebSocketMessage{
+					Type:      models.MessageTypeError,
+					Data:      map[string]interface{}{"message": "invalid message format"},
+					Timestamp: time.Now().UnixMilli(),
+				}
+				_ = c.WriteJSON(errMsg)
+				continue
+			}
+
 			if msg.Timestamp == 0 {
 				msg.Timestamp = time.Now().UnixMilli()
 			}

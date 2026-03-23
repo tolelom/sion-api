@@ -14,17 +14,30 @@ func NewAGVHandler(cm *services.ClientManager, broker *services.Broker) func(*we
 	return func(c *websocket.Conn) {
 		cm.Register(c, services.AGVClient)
 		defer cm.Unregister(c)
+		defer broker.SetAGVConnected(false) // LIFO: 브로드캐스트 후 연결 해제
+
+		broker.SetAGVConnected(true)
 
 		for {
-			var msg models.WebSocketMessage
-			if err := c.ReadJSON(&msg); err != nil {
-				log.Printf("AGV 메시지 읽기 오류: %v", err)
+			_, p, err := c.ReadMessage()
+			if err != nil {
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+					log.Printf("WARN: AGV 비정상 종료: %v", err)
+				} else {
+					log.Printf("INFO: AGV 연결 종료")
+				}
 				break
 			}
+
+			var msg models.WebSocketMessage
+			if err := json.Unmarshal(p, &msg); err != nil {
+				log.Printf("WARN: AGV 메시지 파싱 오류 (연결 유지): %v", err)
+				continue // AGV에는 에러 응답 전송하지 않음
+			}
+
 			if msg.Timestamp == 0 {
 				msg.Timestamp = time.Now().UnixMilli()
 			}
-			// 경로 업데이트 메시지 상세 로깅 (기존 동작 유지)
 			if msg.Type == models.MessageTypePathUpdate {
 				logPathUpdate(msg)
 			}

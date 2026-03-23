@@ -63,10 +63,18 @@ func NewWebHandler(cm *services.ClientManager, broker *services.Broker, llm *ser
 
 			switch msg.Type {
 			case models.MessageTypeChat:
-				if chatData, ok := msg.Data.(map[string]interface{}); ok {
-					if message, ok := chatData["message"].(string); ok {
-						go handleChatViaWebSocket(message, broker, llm)
-					}
+				var chatData models.ChatMessageData
+				raw, err := json.Marshal(msg.Data)
+				if err != nil {
+					log.Printf("WARN: chat marshal 실패: %v", err)
+					break
+				}
+				if err := json.Unmarshal(raw, &chatData); err != nil {
+					log.Printf("WARN: chat 파싱 실패: %v", err)
+					break
+				}
+				if chatData.Message != "" {
+					go handleChatViaWebSocket(chatData.Message, broker, llm)
 				}
 			case models.MessageTypeCommand,
 				models.MessageTypeModeChange,

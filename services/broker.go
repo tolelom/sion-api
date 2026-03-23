@@ -39,22 +39,17 @@ func (b *Broker) OnAGVMessage(msg models.WebSocketMessage) {
 	// AGV 상태 관련 메시지면 갱신
 	switch msg.Type {
 	case models.MessageTypeStatus:
-		if data, ok := msg.Data.(map[string]interface{}); ok {
-			status := &models.AGVStatus{}
-			if battery, ok := data["battery"].(float64); ok {
-				status.Battery = int(battery) // Battery는 int
-			}
-			if speed, ok := data["speed"].(float64); ok {
-				status.Speed = speed
-			}
-			if mode, ok := data["mode"].(string); ok {
-				status.Mode = mode // Mode는 plain string
-			}
-			if state, ok := data["state"].(string); ok {
-				status.State = state // State는 plain string
-			}
-			b.setAGVStatus(status)
+		raw, err := json.Marshal(msg.Data)
+		if err != nil {
+			log.Printf("WARN: status marshal 실패: %v", err)
+			break
 		}
+		var status models.AGVStatus
+		if err := json.Unmarshal(raw, &status); err != nil {
+			log.Printf("WARN: status 파싱 실패: %v", err)
+			break
+		}
+		b.setAGVStatus(&status)
 	}
 
 	// Web 클라이언트들에게 브로드캐스트

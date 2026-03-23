@@ -4,15 +4,17 @@ import (
 	"encoding/json"
 	"log"
 	"sync"
+	"time"
 
 	"sion-backend/models"
 )
 
 // Broker — 메시지 라우팅 + 현재 AGV 상태 보유
 type Broker struct {
-	cm        *ClientManager
-	agvStatus *models.AGVStatus
-	mu        sync.RWMutex
+	cm           *ClientManager
+	agvStatus    *models.AGVStatus
+	agvConnected bool
+	mu           sync.RWMutex
 }
 
 func NewBroker(cm *ClientManager) *Broker {
@@ -82,4 +84,39 @@ func (b *Broker) BroadcastToWeb(msg models.WebSocketMessage) {
 		return
 	}
 	b.cm.BroadcastToWeb(raw)
+}
+
+// SetAGVConnected — AGV 연결 상태 변경 시 웹 클라이언트에 브로드캐스트
+func (b *Broker) SetAGVConnected(connected bool) {
+	b.mu.Lock()
+	if b.agvConnected == connected {
+		b.mu.Unlock()
+		return // 상태 동일하면 무시
+	}
+	b.agvConnected = connected
+	b.mu.Unlock()
+
+	msgType := models.MessageTypeAGVConnected
+	if !connected {
+		msgType = models.MessageTypeAGVDisconnected
+	}
+
+	raw, err := json.Marshal(models.WebSocketMessage{
+		Type:      msgType,
+		Data:      map[string]interface{}{"connected": connected},
+		Timestamp: time.Now().UnixMilli(),
+	})
+	if err != nil {
+		log.Printf("SetAGVConnected marshal 실패: %v", err)
+		return
+	}
+	b.cm.BroadcastToWeb(raw)
+	log.Printf("AGV 연결 상태 변경: %v", connected)
+}
+
+// IsAGVConnected — AGV 연결 여부 조회
+func (b *Broker) IsAGVConnected() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.agvConnected
 }

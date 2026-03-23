@@ -30,6 +30,13 @@ const (
 	// Server → All
 	MessageTypeMapUpdate  = "map_update"  // 맵 업데이트
 	MessageTypeSystemInfo = "system_info" // 시스템 정보
+
+	// 연결 상태
+	MessageTypeAGVConnected    = "agv_connected"    // AGV 연결됨
+	MessageTypeAGVDisconnected = "agv_disconnected" // AGV 연결 끊김
+
+	// 에러
+	MessageTypeError = "error" // 에러 메시지
 )
 
 // ========================================

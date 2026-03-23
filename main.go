@@ -14,29 +14,32 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// 🆕 전역 시뮬레이터 인스턴스
 var agvSimulator *services.AGVSimulator
 
 func main() {
-	// .env 파일 로드
 	if err := godotenv.Load(); err != nil {
 		log.Println("⚠️  .env 파일을 찾을 수 없습니다.")
 	}
 
-	// MySQL 연결
 	if err := services.InitDatabase(); err != nil {
 		log.Fatalf("❌ DB 초기화 실패: %v", err)
 	}
 
-	// 로깅 시스템 초기화
 	services.InitLogging(50, 10*time.Second)
 	defer services.StopLogging()
 
-	// LLM 서비스 초기화
-	handlers.InitLLMService()
+	// ClientManager + Broker 생성
+	cm := services.NewClientManager()
+	br := services.NewBroker(cm)
 
-	// 🆕 AGV 시뮬레이터 초기화
-	agvSimulator = services.NewAGVSimulator(handlers.Manager.BroadcastMessage)
+	// LLM 서비스 + Broker 초기화
+	handlers.InitLLMService()
+	handlers.InitBroker(br)
+
+	// 시뮬레이터 초기화
+	agvSimulator = services.NewAGVSimulator(func(msg models.WebSocketMessage) {
+		br.BroadcastToWeb(msg)
+	})
 
 	app := fiber.New()
 
@@ -47,8 +50,6 @@ func main() {
 		AllowMethods: "GET, POST, PUT, DELETE, OPTIONS",
 	}))
 
-	go handlers.Manager.Start()
-
 	app.Get("/", func(c *fiber.Ctx) error {
 		return c.SendString("Sion WebSocket 서버가 실행 중입니다.")
 	})
@@ -58,7 +59,7 @@ func main() {
 	api.Get("/health", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
 			"status":  "OK",
-			"clients": handlers.Manager.GetClientCount(),
+			"clients": cm.GetClientCount(),
 			"time":    time.Now().Format(time.RFC3339),
 		})
 	})
@@ -76,7 +77,7 @@ func main() {
 	logsAPI.Get("/type", handlers.HandleGetLogsByEventType)
 	logsAPI.Get("/stats", handlers.HandleGetLogStats)
 
-	// 🆕 시뮬레이터 API
+	// 시뮬레이터 API
 	simAPI := api.Group("/simulator")
 	simAPI.Post("/start", func(c *fiber.Ctx) error {
 		if agvSimulator.IsRunning {
@@ -132,7 +133,7 @@ func main() {
 			Timestamp: time.Now().UnixMilli(),
 		}
 
-		handlers.Manager.BroadcastMessage(testMsg)
+		br.BroadcastToWeb(testMsg)
 		services.LogAGVPosition("sion-001", testMsg.Data.(models.PositionData))
 
 		return c.JSON(fiber.Map{
@@ -154,7 +155,7 @@ func main() {
 			Timestamp: time.Now().UnixMilli(),
 		}
 
-		handlers.Manager.BroadcastMessage(testMsg)
+		br.BroadcastToWeb(testMsg)
 		services.LogWebSocketMessage("sion-001", testMsg)
 
 		return c.JSON(fiber.Map{
@@ -220,8 +221,8 @@ func main() {
 		return fiber.ErrUpgradeRequired
 	})
 
-	app.Get("/websocket/agv", websocket.New(handlers.HandleAGVWebSocket))
-	app.Get("/websocket/web", websocket.New(handlers.HandleWebClientWebSocket))
+	app.Get("/websocket/agv", websocket.New(handlers.NewAGVHandler(cm, br)))
+	app.Get("/websocket/web", websocket.New(handlers.NewWebHandler(cm, br, handlers.GetLLMService())))
 
 	log.Println("🚀 서버 시작: http://localhost:8001")
 	log.Println("📡 WebSocket: ws://localhost:8001/websocket/web")

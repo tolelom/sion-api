@@ -35,30 +35,26 @@ func (b *Broker) setAGVStatus(status *models.AGVStatus) {
 }
 
 // OnAGVMessage — AGV에서 수신한 메시지 처리: AGVStatus 갱신 + Web으로 브로드캐스트
-func (b *Broker) OnAGVMessage(msg models.WebSocketMessage) {
+func (b *Broker) OnAGVMessage(msg models.WebSocketMessage, rawBytes []byte) {
 	// AGV 상태 관련 메시지면 갱신
 	switch msg.Type {
 	case models.MessageTypeStatus:
-		raw, err := json.Marshal(msg.Data)
+		// status 파싱: msg.Data에서 marshal → unmarshal (기존 패턴 유지)
+		dataRaw, err := json.Marshal(msg.Data)
 		if err != nil {
 			log.Printf("WARN: status marshal 실패: %v", err)
 			break
 		}
 		var status models.AGVStatus
-		if err := json.Unmarshal(raw, &status); err != nil {
+		if err := json.Unmarshal(dataRaw, &status); err != nil {
 			log.Printf("WARN: status 파싱 실패: %v", err)
 			break
 		}
 		b.setAGVStatus(&status)
 	}
 
-	// Web 클라이언트들에게 브로드캐스트
-	raw, err := json.Marshal(msg)
-	if err != nil {
-		log.Printf("Broker.OnAGVMessage marshal 실패: %v", err)
-		return
-	}
-	b.cm.BroadcastToWeb(raw)
+	// Web 클라이언트들에게 브로드캐스트: 원본 raw bytes 직접 전달 (re-marshal 제거)
+	b.cm.BroadcastToWeb(rawBytes)
 }
 
 // OnWebMessage — Web에서 수신한 명령 처리: AGV로 전달

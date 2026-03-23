@@ -37,13 +37,17 @@ func NewAGVHandler(cm *services.ClientManager, broker *services.Broker) func(*we
 
 			if msg.Timestamp == 0 {
 				msg.Timestamp = time.Now().UnixMilli()
+				// timestamp 주입 시 raw bytes 갱신 (웹 클라이언트에 정확한 timestamp 전달)
+				if updated, err := json.Marshal(msg); err == nil {
+					p = updated
+				}
 			}
 			if msg.Type == models.MessageTypePathUpdate {
 				logPathUpdate(msg)
 			}
-			go services.LogAGVEvent(msg, "sion-001", "agv")
+			services.LogAGVEvent(msg, "sion-001", "agv")
 			log.Printf("AGV 메시지: %s", msg.Type)
-			broker.OnAGVMessage(msg)
+			broker.OnAGVMessage(msg, p)
 		}
 	}
 }

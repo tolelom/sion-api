@@ -9,13 +9,23 @@ import (
 	"time"
 )
 
+// retryableLog — 재시도 가능한 로그 래퍼
+type retryableLog struct {
+	Log        models.AGVLog
+	RetryCount int
+}
+
+const maxRetries = 3
+const maxFailedLogs = 500
+
 // 🆕 로깅 버퍼 (비동기 일괄 처리)
 type LogBuffer struct {
-	logs      []models.AGVLog
-	mu        sync.Mutex
-	flushSize int           // 일괄 저장 크기
-	flushTime time.Duration // 자동 플러시 시간
-	stopChan  chan bool
+	logs       []models.AGVLog
+	failedLogs []retryableLog
+	mu         sync.Mutex
+	flushSize  int           // 일괄 저장 크기
+	flushTime  time.Duration // 자동 플러시 시간
+	stopChan   chan bool
 }
 
 var logBuffer *LogBuffer
@@ -23,10 +33,11 @@ var logBuffer *LogBuffer
 // InitLogging - 로깅 시스템 초기화
 func InitLogging(flushSize int, flushInterval time.Duration) {
 	logBuffer = &LogBuffer{
-		logs:      make([]models.AGVLog, 0, flushSize*2),
-		flushSize: flushSize,
-		flushTime: flushInterval,
-		stopChan:  make(chan bool),
+		logs:       make([]models.AGVLog, 0, flushSize*2),
+		failedLogs: make([]retryableLog, 0),
+		flushSize:  flushSize,
+		flushTime:  flushInterval,
+		stopChan:   make(chan bool),
 	}
 
 	// 자동 플러시 고루틴 시작
@@ -69,28 +80,79 @@ func AddLog(logEntry models.AGVLog) {
 	}
 }
 
-// Flush - 버퍼의 모든 로그를 DB에 저장
+// Flush - 버퍼의 모든 로그를 DB에 저장 (실패 시 재시도 큐로 이동)
 func (lb *LogBuffer) Flush() {
+	if db == nil {
+		return // DB 없으면 버퍼 유지 (데이터 유실 방지)
+	}
+
 	lb.mu.Lock()
-	if len(lb.logs) == 0 {
+	if len(lb.logs) == 0 && len(lb.failedLogs) == 0 {
 		lb.mu.Unlock()
 		return
 	}
 
-	// 로그 복사 및 버퍼 초기화
-	logsToSave := make([]models.AGVLog, len(lb.logs))
-	copy(logsToSave, lb.logs)
-	lb.logs = lb.logs[:0] // 버퍼 비우기
+	// 실패 로그 복사
+	var retryLogs []retryableLog
+	if len(lb.failedLogs) > 0 {
+		retryLogs = make([]retryableLog, len(lb.failedLogs))
+		copy(retryLogs, lb.failedLogs)
+		lb.failedLogs = lb.failedLogs[:0]
+	}
+
+	// 새 로그 복사
+	var newLogs []models.AGVLog
+	if len(lb.logs) > 0 {
+		newLogs = make([]models.AGVLog, len(lb.logs))
+		copy(newLogs, lb.logs)
+		lb.logs = lb.logs[:0]
+	}
 	lb.mu.Unlock()
 
-	// DB 일괄 저장
-	if db != nil {
-		err := db.CreateInBatches(logsToSave, 100).Error
-		if err != nil {
-			log.Printf("❌ 로그 저장 실패: %v", err)
-		} else {
-			log.Printf("💾 로그 %d개 저장 완료", len(logsToSave))
+	// 1) 실패 로그 재시도
+	var stillFailed []retryableLog
+	if len(retryLogs) > 0 {
+		retryBatch := make([]models.AGVLog, len(retryLogs))
+		for i, rl := range retryLogs {
+			retryBatch[i] = rl.Log
 		}
+		if err := db.CreateInBatches(retryBatch, 100).Error; err != nil {
+			log.Printf("❌ 재시도 로그 저장 실패: %v", err)
+			for _, rl := range retryLogs {
+				rl.RetryCount++
+				if rl.RetryCount >= maxRetries {
+					log.Printf("❌ 로그 재시도 %d회 초과, 폐기", maxRetries)
+				} else {
+					stillFailed = append(stillFailed, rl)
+				}
+			}
+		} else {
+			log.Printf("💾 재시도 로그 %d개 저장 완료", len(retryBatch))
+		}
+	}
+
+	// 2) 새 로그 저장
+	if len(newLogs) > 0 {
+		if err := db.CreateInBatches(newLogs, 100).Error; err != nil {
+			log.Printf("❌ 로그 저장 실패: %v", err)
+			for _, l := range newLogs {
+				stillFailed = append(stillFailed, retryableLog{Log: l, RetryCount: 0})
+			}
+		} else {
+			log.Printf("💾 로그 %d개 저장 완료", len(newLogs))
+		}
+	}
+
+	// 3) 실패 로그를 큐에 복원 (최대 크기 제한)
+	if len(stillFailed) > 0 {
+		lb.mu.Lock()
+		lb.failedLogs = append(lb.failedLogs, stillFailed...)
+		if len(lb.failedLogs) > maxFailedLogs {
+			dropped := len(lb.failedLogs) - maxFailedLogs
+			lb.failedLogs = lb.failedLogs[dropped:] // 앞쪽(오래된 것)부터 버림
+			log.Printf("⚠️ 실패 로그 큐 초과, %d개 폐기", dropped)
+		}
+		lb.mu.Unlock()
 	}
 }
 

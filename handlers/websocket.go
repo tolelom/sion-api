@@ -11,6 +11,9 @@ import (
 	"github.com/gofiber/websocket/v2"
 )
 
+// Deprecated: currentAGVStatus is kept for backward compatibility until websocket.go is removed (Task 5)
+var currentAGVStatus *models.AGVStatus
+
 type Client struct {
 	Conn       *websocket.Conn
 	ClientType string // "agv" 또는 "web"

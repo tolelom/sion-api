@@ -9,7 +9,6 @@ import (
 	"time"
 )
 
-// AGVSimulator - AGV 시뮬레이터
 type AGVSimulator struct {
 	Status         *models.AGVStatus
 	MapWidth       float64
@@ -22,7 +21,6 @@ type AGVSimulator struct {
 	stopChan       chan bool
 }
 
-// NewAGVSimulator - 시뮬레이터 생성
 func NewAGVSimulator(broadcastFunc func(models.WebSocketMessage)) *AGVSimulator {
 	return &AGVSimulator{
 		Status: &models.AGVStatus{
@@ -49,20 +47,18 @@ func NewAGVSimulator(broadcastFunc func(models.WebSocketMessage)) *AGVSimulator 
 	}
 }
 
-// Start - 시뮬레이터 시작
 func (sim *AGVSimulator) Start() {
 	if sim.IsRunning {
-		log.Println("⚠️ 시뮬레이터가 이미 실행 중")
+		log.Println("[WARN] 시뮬레이터가 이미 실행 중")
 		return
 	}
 
 	sim.IsRunning = true
-	log.Println("🤖 AGV 시뮬레이터 시작")
+	log.Println("[INFO] AGV 시뮬레이터 시작")
 
 	go sim.runSimulation()
 }
 
-// Stop - 시뮬레이터 중지
 func (sim *AGVSimulator) Stop() {
 	if !sim.IsRunning {
 		return
@@ -70,10 +66,9 @@ func (sim *AGVSimulator) Stop() {
 
 	sim.IsRunning = false
 	sim.stopChan <- true
-	log.Println("🛑 AGV 시뮬레이터 중지")
+	log.Println("[INFO] AGV 시뮬레이터 중지")
 }
 
-// runSimulation - 메인 시뮬레이션 루프
 func (sim *AGVSimulator) runSimulation() {
 	ticker := time.NewTicker(sim.UpdateInterval)
 	defer ticker.Stop()
@@ -88,7 +83,6 @@ func (sim *AGVSimulator) runSimulation() {
 	}
 }
 
-// update - 매 틱마다 호출
 func (sim *AGVSimulator) update() {
 	detectedEnemies := sim.detectEnemies()
 	sim.Status.DetectedEnemies = detectedEnemies
@@ -184,9 +178,9 @@ func (sim *AGVSimulator) attackTarget() {
 					sim.Enemies[i].HP = 0
 				}
 				sim.Status.TargetEnemy.HP = sim.Enemies[i].HP
-				log.Printf("⚔️ 타겟 공격! %s HP: %d", sim.Enemies[i].Name, sim.Enemies[i].HP)
+				log.Printf("[INFO] 타겟 공격: %s HP: %d", sim.Enemies[i].Name, sim.Enemies[i].HP)
 				if sim.Enemies[i].HP == 0 {
-					log.Printf("🎯 타겟 제거: %s", sim.Enemies[i].Name)
+					log.Printf("[INFO] 타겟 제거: %s", sim.Enemies[i].Name)
 					sim.Status.TargetEnemy = nil
 				}
 				break
@@ -197,19 +191,18 @@ func (sim *AGVSimulator) attackTarget() {
 
 func (sim *AGVSimulator) consumeBattery() {
 	if sim.Status.Speed > 0 {
-		// Battery는 int 타입이므로 정수 단위로 감소시킨다.
 		sim.Status.Battery -= 1
 		if sim.Status.Battery < 0 {
 			sim.Status.Battery = 0
 			sim.Status.State = models.StateStopped
 			sim.Status.Speed = 0
-			log.Println("🪫 배터리 방전! AGV 정지")
+			log.Println("[WARN] 배터리 방전, AGV 정지")
 		}
 	}
 
 	if sim.Status.Battery <= 20 && sim.Status.Battery > 0 {
 		if rand.Float64() < 0.05 {
-			log.Printf("⚠️ 배터리 부족: %d%%", sim.Status.Battery)
+			log.Printf("[WARN] 배터리 부족: %d%%", sim.Status.Battery)
 		}
 	}
 }
@@ -235,13 +228,11 @@ func (sim *AGVSimulator) distanceTo(x, y float64) float64 {
 	return math.Sqrt(dx*dx + dy*dy)
 }
 
-// broadcastStatus - WebSocket으로 상태 브로드캐스트
 func (sim *AGVSimulator) broadcastStatus() {
 	if sim.BroadcastFunc == nil {
 		return
 	}
 
-	// 🆕 적들을 평탄화 (Frontend가 바로 사용 가능)
 	flatEnemies := make([]map[string]interface{}, len(sim.Status.DetectedEnemies))
 	for i, enemy := range sim.Status.DetectedEnemies {
 		flatEnemies[i] = map[string]interface{}{
@@ -253,7 +244,6 @@ func (sim *AGVSimulator) broadcastStatus() {
 		}
 	}
 
-	// 🆕 현재 타겟도 평탄화
 	var flatTarget map[string]interface{}
 	if sim.Status.TargetEnemy != nil {
 		flatTarget = map[string]interface{}{
@@ -272,8 +262,8 @@ func (sim *AGVSimulator) broadcastStatus() {
 			"speed":            sim.Status.Speed,
 			"mode":             sim.Status.Mode,
 			"state":            sim.Status.State,
-			"detected_enemies": flatEnemies,  // ✅ 평탄화된 배열
-			"target_enemy":     flatTarget,   // ✅ 평탄화된 객체 (nil이면 null)
+			"detected_enemies": flatEnemies,
+			"target_enemy":     flatTarget,
 		},
 		Timestamp: time.Now().UnixMilli(),
 	}
@@ -311,7 +301,6 @@ func generateRandomEnemies(count int, mapWidth, mapHeight float64) []models.Enem
 	return enemies
 }
 
-// generateRandomObstacles - 랜덤 장애물 생성
 func generateRandomObstacles(count int, mapWidth, mapHeight float64) []models.Obstacle {
 	obstacles := make([]models.Obstacle, count)
 	for i := 0; i < count; i++ {

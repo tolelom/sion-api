@@ -21,7 +21,7 @@ type Node struct {
 type Grid struct {
 	Width     int
 	Height    int
-	Obstacles map[string]bool // 장애물 위치: "x,y"
+	Obstacles map[string]bool
 }
 
 func NewGrid(width, height int) *Grid {

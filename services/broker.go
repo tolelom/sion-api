@@ -37,12 +37,12 @@ func (b *Broker) OnAGVMessage(msg models.WebSocketMessage, rawBytes []byte) {
 	case models.MessageTypeStatus:
 		dataRaw, err := json.Marshal(msg.Data)
 		if err != nil {
-			log.Printf("WARN: status marshal 실패: %v", err)
+			log.Printf("[WARN] status marshal 실패: %v", err)
 			break
 		}
 		var status models.AGVStatus
 		if err := json.Unmarshal(dataRaw, &status); err != nil {
-			log.Printf("WARN: status 파싱 실패: %v", err)
+			log.Printf("[WARN] status 파싱 실패: %v", err)
 			break
 		}
 		b.setAGVStatus(&status)
@@ -54,7 +54,7 @@ func (b *Broker) OnAGVMessage(msg models.WebSocketMessage, rawBytes []byte) {
 func (b *Broker) OnWebMessage(msg models.WebSocketMessage) {
 	raw, err := json.Marshal(msg)
 	if err != nil {
-		log.Printf("Broker.OnWebMessage marshal 실패: %v", err)
+		log.Printf("[ERROR] Broker.OnWebMessage marshal 실패: %v", err)
 		return
 	}
 	b.cm.WriteToAGV(raw)
@@ -63,7 +63,7 @@ func (b *Broker) OnWebMessage(msg models.WebSocketMessage) {
 func (b *Broker) BroadcastToWeb(msg models.WebSocketMessage) {
 	raw, err := json.Marshal(msg)
 	if err != nil {
-		log.Printf("Broker.BroadcastToWeb marshal 실패: %v", err)
+		log.Printf("[ERROR] Broker.BroadcastToWeb marshal 실패: %v", err)
 		return
 	}
 	b.cm.BroadcastToWeb(raw)
@@ -89,7 +89,7 @@ func (b *Broker) SetAGVConnected(connected bool) {
 		Timestamp: time.Now().UnixMilli(),
 	})
 	if err != nil {
-		log.Printf("SetAGVConnected marshal 실패: %v", err)
+		log.Printf("[ERROR] SetAGVConnected marshal 실패: %v", err)
 		return
 	}
 	b.cm.BroadcastToWeb(raw)

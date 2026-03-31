@@ -15,7 +15,6 @@ func NewWebHandler(cm *services.ClientManager, broker *services.Broker, llm *ser
 		cm.Register(c, services.WebClient)
 		defer cm.Unregister(c)
 
-		// Welcome 메시지 (AGV 연결 상태 + 현재 상태 스냅샷 포함)
 		welcomeData := map[string]interface{}{
 			"message":       "웹 클라이언트 연결됨",
 			"connected_at":  time.Now().Format(time.RFC3339),
@@ -35,17 +34,16 @@ func NewWebHandler(cm *services.ClientManager, broker *services.Broker, llm *ser
 			_, p, err := c.ReadMessage()
 			if err != nil {
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-					log.Printf("WARN: 웹 비정상 종료: %v", err)
+					log.Printf("[WARN] 웹 비정상 종료: %v", err)
 				} else {
-					log.Printf("INFO: 웹 연결 종료")
+					log.Println("[INFO] 웹 연결 종료")
 				}
 				break
 			}
 
 			var msg models.WebSocketMessage
 			if err := json.Unmarshal(p, &msg); err != nil {
-				log.Printf("WARN: 웹 메시지 파싱 오류 (연결 유지): %v", err)
-				// 웹 클라이언트에 에러 응답 전송
+				log.Printf("[WARN] 웹 메시지 파싱 오류: %v", err)
 				errMsg := models.WebSocketMessage{
 					Type:      models.MessageTypeError,
 					Data:      map[string]interface{}{"message": "invalid message format"},
@@ -59,18 +57,18 @@ func NewWebHandler(cm *services.ClientManager, broker *services.Broker, llm *ser
 				msg.Timestamp = time.Now().UnixMilli()
 			}
 			go services.LogAGVEvent(msg, "sion-001", "web-user")
-			log.Printf("웹 메시지: %s", msg.Type)
+			log.Printf("[INFO] 웹 메시지: %s", msg.Type)
 
 			switch msg.Type {
 			case models.MessageTypeChat:
 				var chatData models.ChatMessageData
 				raw, err := json.Marshal(msg.Data)
 				if err != nil {
-					log.Printf("WARN: chat marshal 실패: %v", err)
+					log.Printf("[WARN] chat marshal 실패: %v", err)
 					break
 				}
 				if err := json.Unmarshal(raw, &chatData); err != nil {
-					log.Printf("WARN: chat 파싱 실패: %v", err)
+					log.Printf("[WARN] chat 파싱 실패: %v", err)
 					break
 				}
 				if chatData.Message != "" {
@@ -81,7 +79,7 @@ func NewWebHandler(cm *services.ClientManager, broker *services.Broker, llm *ser
 				models.MessageTypeEmergencyStop:
 				broker.OnWebMessage(msg)
 			default:
-				log.Printf("알 수 없는 메시지 타입: %s", msg.Type)
+				log.Printf("[WARN] 알 수 없는 메시지 타입: %s", msg.Type)
 			}
 		}
 	}
@@ -89,13 +87,13 @@ func NewWebHandler(cm *services.ClientManager, broker *services.Broker, llm *ser
 
 func handleChatViaWebSocket(message string, broker *services.Broker, llm *services.LLMService) {
 	if llm == nil {
-		log.Println("LLM 서비스 미초기화")
+		log.Println("[WARN] LLM 서비스 미초기화")
 		return
 	}
 	status := broker.GetAGVStatus()
 	response, err := llm.AnswerQuestion(message, status)
 	if err != nil {
-		log.Printf("LLM 응답 실패: %v", err)
+		log.Printf("[ERROR] LLM 응답 실패: %v", err)
 		return
 	}
 	broker.BroadcastToWeb(models.WebSocketMessage{

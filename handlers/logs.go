@@ -8,9 +8,8 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// HandleGetRecentLogs - 최근 로그 조회
 func HandleGetRecentLogs(c *fiber.Ctx) error {
-	agvID := c.Query("agv_id", "sion-001") // 기본 AGV ID
+	agvID := c.Query("agv_id", "sion-001")
 	limitStr := c.Query("limit", "100")
 
 	limit, err := strconv.Atoi(limitStr)
@@ -18,11 +17,10 @@ func HandleGetRecentLogs(c *fiber.Ctx) error {
 		limit = 100
 	}
 
-	// 최근 로그 조회
 	logs, err := services.GetRecentLogs(agvID, limit)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to fetch logs",
+			"error": "로그 조회 실패",
 		})
 	}
 
@@ -33,40 +31,35 @@ func HandleGetRecentLogs(c *fiber.Ctx) error {
 	})
 }
 
-// HandleGetLogsByTimeRange - 시간 범위로 로그 조회
 func HandleGetLogsByTimeRange(c *fiber.Ctx) error {
 	agvID := c.Query("agv_id", "sion-001")
-	startStr := c.Query("start") // RFC3339 format
-	endStr := c.Query("end")     // RFC3339 format
+	startStr := c.Query("start")
+	endStr := c.Query("end")
 	limitStr := c.Query("limit", "100")
 
-	// 시작 시간 파싱
 	var start time.Time
 	if startStr != "" {
 		parsed, err := time.Parse(time.RFC3339, startStr)
 		if err != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": "Invalid start time format (use RFC3339)",
+				"error": "잘못된 start 시간 형식 (RFC3339 사용)",
 			})
 		}
 		start = parsed
 	} else {
-		// 기본: 24시간 전
 		start = time.Now().Add(-24 * time.Hour)
 	}
 
-	// 종료 시간 파싱
 	var end time.Time
 	if endStr != "" {
 		parsed, err := time.Parse(time.RFC3339, endStr)
 		if err != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": "Invalid end time format (use RFC3339)",
+				"error": "잘못된 end 시간 형식 (RFC3339 사용)",
 			})
 		}
 		end = parsed
 	} else {
-		// 기본: 현재 시간
 		end = time.Now()
 	}
 
@@ -75,17 +68,16 @@ func HandleGetLogsByTimeRange(c *fiber.Ctx) error {
 		limit = 100
 	}
 
-	// 로그 조회
 	logs, err := services.GetLogsByTimeRange(agvID, start, end, limit)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to fetch logs",
+			"error": "로그 조회 실패",
 		})
 	}
 
 	return c.JSON(fiber.Map{
-		"success":    true,
-		"count":      len(logs),
+		"success": true,
+		"count":   len(logs),
 		"time_range": fiber.Map{
 			"start": start.Format(time.RFC3339),
 			"end":   end.Format(time.RFC3339),
@@ -94,7 +86,6 @@ func HandleGetLogsByTimeRange(c *fiber.Ctx) error {
 	})
 }
 
-// HandleGetLogsByEventType - 이벤트 타입별 로그 조회
 func HandleGetLogsByEventType(c *fiber.Ctx) error {
 	agvID := c.Query("agv_id", "sion-001")
 	eventType := c.Query("event_type")
@@ -102,7 +93,7 @@ func HandleGetLogsByEventType(c *fiber.Ctx) error {
 
 	if eventType == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "event_type parameter is required",
+			"error": "event_type 파라미터가 필요합니다",
 		})
 	}
 
@@ -111,11 +102,10 @@ func HandleGetLogsByEventType(c *fiber.Ctx) error {
 		limit = 100
 	}
 
-	// 로그 조회
 	logs, err := services.GetLogsByEventType(agvID, eventType, limit)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to fetch logs",
+			"error": "로그 조회 실패",
 		})
 	}
 
@@ -127,7 +117,6 @@ func HandleGetLogsByEventType(c *fiber.Ctx) error {
 	})
 }
 
-// HandleGetLogStats - 로그 통계 조회
 func HandleGetLogStats(c *fiber.Ctx) error {
 	agvID := c.Query("agv_id", "sion-001")
 	hoursStr := c.Query("hours", "24")
@@ -137,11 +126,10 @@ func HandleGetLogStats(c *fiber.Ctx) error {
 		hours = 24
 	}
 
-	// 통계 조회
 	stats, err := services.GetLogStats(agvID, hours)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to fetch stats",
+			"error": "통계 조회 실패",
 		})
 	}
 

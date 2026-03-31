@@ -12,27 +12,23 @@ import (
 var llmService *services.LLMService
 var broker *services.Broker
 
-// InitLLMService - LLM 서비스 초기화
 func InitLLMService() {
 	llmService = services.NewLLMServiceFromEnv()
 	if llmService == nil {
-		log.Println("LLM 서비스 초기화 실패")
+		log.Println("[WARN] LLM 서비스 초기화 실패")
 		return
 	}
-	log.Printf("LLM 서비스 초기화 완료 (Ollama, model=%s)", llmService.Model)
+	log.Printf("[INFO] LLM 서비스 초기화 완료 (model=%s)", llmService.Model)
 }
 
-// InitBroker - Broker 주입 (main.go에서 호출)
 func InitBroker(b *services.Broker) {
 	broker = b
 }
 
-// GetLLMService - LLM 서비스 인스턴스 반환 (main.go에서 핸들러 생성 시 사용)
 func GetLLMService() *services.LLMService {
 	return llmService
 }
 
-// HandleChat - 채팅 메시지 처리 (HTTP POST)
 func HandleChat(c *fiber.Ctx) error {
 	var chatData models.ChatMessageData
 	if err := c.BodyParser(&chatData); err != nil {
@@ -47,7 +43,7 @@ func HandleChat(c *fiber.Ctx) error {
 		})
 	}
 
-	log.Printf("채팅 수신: %s", chatData.Message)
+	log.Printf("[INFO] 채팅 수신: %s", chatData.Message)
 
 	var status *models.AGVStatus
 	if broker != nil {
@@ -76,7 +72,6 @@ func HandleChat(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"success": true, "response": response})
 }
 
-// ExplainAGVEvent - AGV 이벤트 자동 설명 (내부 호출용)
 func ExplainAGVEvent(eventType string, agvStatus *models.AGVStatus) {
 	if llmService == nil {
 		return
@@ -84,7 +79,7 @@ func ExplainAGVEvent(eventType string, agvStatus *models.AGVStatus) {
 	go func() {
 		explanation, err := llmService.ExplainEvent(eventType, agvStatus)
 		if err != nil {
-			log.Printf("이벤트 설명 생성 실패: %v", err)
+			log.Printf("[ERROR] 이벤트 설명 생성 실패: %v", err)
 			return
 		}
 		if broker != nil {

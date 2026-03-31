@@ -9,7 +9,6 @@ import (
 	"time"
 )
 
-// retryableLog — 재시도 가능한 로그 래퍼
 type retryableLog struct {
 	Log        models.AGVLog
 	RetryCount int
@@ -18,7 +17,6 @@ type retryableLog struct {
 const maxRetries = 3
 const maxFailedLogs = 500
 
-// 🆕 로깅 버퍼 (비동기 일괄 처리)
 type LogBuffer struct {
 	logs       []models.AGVLog
 	failedLogs []retryableLog
@@ -30,7 +28,6 @@ type LogBuffer struct {
 
 var logBuffer *LogBuffer
 
-// InitLogging - 로깅 시스템 초기화
 func InitLogging(flushSize int, flushInterval time.Duration) {
 	logBuffer = &LogBuffer{
 		logs:       make([]models.AGVLog, 0, flushSize*2),

@@ -10,12 +10,14 @@ import (
 	"net/http"
 	"os"
 	"sion-backend/models"
+	"strconv"
 	"time"
 )
 
 type LLMService struct {
-	BaseURL string
-	Model   string
+	BaseURL    string
+	Model      string
+	TimeoutSec int
 }
 
 func NewLLMServiceFromEnv() *LLMService {
@@ -29,11 +31,19 @@ func NewLLMServiceFromEnv() *LLMService {
 		model = "llama3.2"
 	}
 
-	log.Printf("[INFO] LLM 초기화 (baseURL=%s, model=%s)", baseURL, model)
+	timeoutSec := 60
+	if v := os.Getenv("LLM_TIMEOUT_SEC"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			timeoutSec = n
+		}
+	}
+
+	log.Printf("[INFO] LLM 초기화 (baseURL=%s, model=%s, timeoutSec=%d)", baseURL, model, timeoutSec)
 
 	return &LLMService{
-		BaseURL: baseURL,
-		Model:   model,
+		BaseURL:    baseURL,
+		Model:      model,
+		TimeoutSec: timeoutSec,
 	}
 }
 
@@ -182,7 +192,7 @@ func (s *LLMService) callOllama(systemPrompt, userPrompt string) (string, error)
 
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := &http.Client{Timeout: time.Duration(s.TimeoutSec) * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("ollama 호출 실패: %v", err)

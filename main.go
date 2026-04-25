@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"os"
 	"sion-backend/handlers"
 	"sion-backend/models"
 	"sion-backend/services"
@@ -38,8 +39,12 @@ func main() {
 
 	app := fiber.New()
 	app.Use(logger.New())
+	allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
+	if allowedOrigins == "" {
+		allowedOrigins = "http://localhost:5173"
+	}
 	app.Use(cors.New(cors.Config{
-		AllowOrigins: "http://localhost:5173, http://localhost:8001, http://sion.tolelom.xyz",
+		AllowOrigins: allowedOrigins,
 		AllowHeaders: "Origin, Content-Type, Accept",
 		AllowMethods: "GET, POST, PUT, DELETE, OPTIONS",
 	}))
@@ -87,6 +92,10 @@ func main() {
 	app.Get("/websocket/agv", websocket.New(handlers.NewAGVHandler(cm, br)))
 	app.Get("/websocket/web", websocket.New(handlers.NewWebHandler(cm, br, handlers.GetLLMService())))
 
-	log.Println("[INFO] 서버 시작: http://localhost:8001")
-	log.Fatal(app.Listen(":8001"))
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8001"
+	}
+	log.Printf("[INFO] 서버 시작: http://localhost:%s", port)
+	log.Fatal(app.Listen(":" + port))
 }

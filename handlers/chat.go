@@ -82,17 +82,21 @@ func ExplainAGVEvent(eventType string, agvStatus *models.AGVStatus) {
 			log.Printf("[ERROR] 이벤트 설명 생성 실패: %v", err)
 			return
 		}
-		if broker != nil {
-			broker.BroadcastToWeb(models.WebSocketMessage{
-				Type: models.MessageTypeAGVEvent,
-				Data: models.AGVEventData{
-					EventType:   eventType,
-					Explanation: explanation,
-					Position:    agvStatus.Position,
-					Timestamp:   time.Now().UnixMilli(),
-				},
-				Timestamp: time.Now().UnixMilli(),
-			})
+		if broker == nil {
+			return
 		}
+		eventData := models.AGVEventData{
+			EventType:   eventType,
+			Explanation: explanation,
+			Timestamp:   time.Now().UnixMilli(),
+		}
+		if agvStatus != nil {
+			eventData.Position = agvStatus.Position
+		}
+		broker.BroadcastToWeb(models.WebSocketMessage{
+			Type:      models.MessageTypeAGVEvent,
+			Data:      eventData,
+			Timestamp: time.Now().UnixMilli(),
+		})
 	}()
 }

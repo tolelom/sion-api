@@ -14,6 +14,8 @@ func NewWebHandler(cm *services.ClientManager, broker *services.Broker, llm *ser
 	return func(c *websocket.Conn) {
 		cm.Register(c, services.WebClient)
 		defer cm.Unregister(c)
+		stopKeepalive := installKeepalive(cm, c, "Web")
+		defer stopKeepalive()
 
 		welcomeData := map[string]interface{}{
 			"message":       "웹 클라이언트 연결됨",
@@ -28,7 +30,9 @@ func NewWebHandler(cm *services.ClientManager, broker *services.Broker, llm *ser
 			Data:      welcomeData,
 			Timestamp: time.Now().UnixMilli(),
 		}
-		_ = c.WriteJSON(welcomeMsg)
+		if err := cm.WriteJSON(c, welcomeMsg); err != nil {
+			log.Printf("[WARN] welcome 메시지 전송 실패: %v", err)
+		}
 
 		for {
 			_, p, err := c.ReadMessage()
@@ -44,12 +48,7 @@ func NewWebHandler(cm *services.ClientManager, broker *services.Broker, llm *ser
 			var msg models.WebSocketMessage
 			if err := json.Unmarshal(p, &msg); err != nil {
 				log.Printf("[WARN] 웹 메시지 파싱 오류: %v", err)
-				errMsg := models.WebSocketMessage{
-					Type:      models.MessageTypeError,
-					Data:      map[string]interface{}{"message": "invalid message format"},
-					Timestamp: time.Now().UnixMilli(),
-				}
-				_ = c.WriteJSON(errMsg)
+				sendInvalidPayloadError(cm, c, "잘못된 메시지 형식")
 				continue
 			}
 
@@ -65,10 +64,12 @@ func NewWebHandler(cm *services.ClientManager, broker *services.Broker, llm *ser
 				raw, err := json.Marshal(msg.Data)
 				if err != nil {
 					log.Printf("[WARN] chat marshal 실패: %v", err)
+					sendInvalidPayloadError(cm, c, "잘못된 chat 페이로드")
 					break
 				}
 				if err := json.Unmarshal(raw, &chatData); err != nil {
 					log.Printf("[WARN] chat 파싱 실패: %v", err)
+					sendInvalidPayloadError(cm, c, "잘못된 chat 페이로드")
 					break
 				}
 				if chatData.Message != "" {
@@ -82,6 +83,17 @@ func NewWebHandler(cm *services.ClientManager, broker *services.Broker, llm *ser
 				log.Printf("[WARN] 알 수 없는 메시지 타입: %s", msg.Type)
 			}
 		}
+	}
+}
+
+func sendInvalidPayloadError(cm *services.ClientManager, c *websocket.Conn, reason string) {
+	errMsg := models.WebSocketMessage{
+		Type:      models.MessageTypeError,
+		Data:      map[string]interface{}{"message": reason},
+		Timestamp: time.Now().UnixMilli(),
+	}
+	if err := cm.WriteJSON(c, errMsg); err != nil {
+		log.Printf("[WARN] 에러 메시지 전송 실패: %v", err)
 	}
 }
 

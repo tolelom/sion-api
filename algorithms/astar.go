@@ -1,154 +1,179 @@
 package algorithms
 
 import (
-	"fmt"
+	"container/heap"
 	"math"
 )
 
+// Point는 외부 API 호환을 위해 float64 좌표를 유지한다.
+// 내부 그리드는 입력을 int로 캐스팅해 셀 단위로 다룬다.
 type Point struct {
 	X float64 `json:"x"`
 	Y float64 `json:"y"`
 }
 
-type Node struct {
-	Point
-	G      float64
-	H      float64
-	F      float64
-	Parent *Node
-}
-
 type Grid struct {
 	Width     int
 	Height    int
-	Obstacles map[string]bool
+	obstacles []bool // y*Width + x
 }
 
 func NewGrid(width, height int) *Grid {
 	return &Grid{
 		Width:     width,
 		Height:    height,
-		Obstacles: make(map[string]bool),
+		obstacles: make([]bool, width*height),
 	}
+}
+
+func (g *Grid) idx(x, y int) int {
+	return y*g.Width + x
+}
+
+func (g *Grid) inBounds(x, y int) bool {
+	return x >= 0 && y >= 0 && x < g.Width && y < g.Height
 }
 
 func (g *Grid) AddObstacle(x, y int) {
-	key := fmt.Sprintf("%d,%d", x, y)
-	g.Obstacles[key] = true
+	if g.inBounds(x, y) {
+		g.obstacles[g.idx(x, y)] = true
+	}
 }
 
 func (g *Grid) IsObstacle(x, y int) bool {
-	key := fmt.Sprintf("%d,%d", x, y)
-	return g.Obstacles[key]
+	if !g.inBounds(x, y) {
+		return false
+	}
+	return g.obstacles[g.idx(x, y)]
 }
 
 func (g *Grid) IsValid(x, y int) bool {
-	if x < 0 || y < 0 || x >= g.Width || y >= g.Height {
-		return false
-	}
-	return !g.IsObstacle(x, y)
+	return g.inBounds(x, y) && !g.obstacles[g.idx(x, y)]
 }
 
-func heuristic(a, b Point) float64 {
-	dx := a.X - b.X
-	dy := a.Y - b.Y
+// 8방향 이동 (dx, dy)
+var directions8 = [8][2]int{
+	{1, 0}, {-1, 0}, {0, 1}, {0, -1},
+	{1, 1}, {-1, 1}, {1, -1}, {-1, -1},
+}
+
+func heuristic(ax, ay, bx, by int) float64 {
+	dx := float64(ax - bx)
+	dy := float64(ay - by)
 	return math.Sqrt(dx*dx + dy*dy)
 }
 
-func pointKey(p Point) string {
-	return fmt.Sprintf("%.1f,%.1f", p.X, p.Y)
+type pqItem struct {
+	x, y int
+	f, g float64
 }
 
-func (g *Grid) GetNeighbors(current Point) []Point {
-	directions := []struct{ dx, dy int }{
-		{0, 1}, {1, 0}, {0, -1}, {-1, 0},
-		{1, 1}, {1, -1}, {-1, -1}, {-1, 1},
-	}
-	var neighbors []Point
-	for _, d := range directions {
-		nx := int(current.X) + d.dx
-		ny := int(current.Y) + d.dy
-		if g.IsValid(nx, ny) {
-			neighbors = append(neighbors, Point{X: float64(nx), Y: float64(ny)})
-		}
-	}
-	return neighbors
+type priorityQueue []*pqItem
+
+func (pq priorityQueue) Len() int            { return len(pq) }
+func (pq priorityQueue) Less(i, j int) bool  { return pq[i].f < pq[j].f }
+func (pq priorityQueue) Swap(i, j int)       { pq[i], pq[j] = pq[j], pq[i] }
+func (pq *priorityQueue) Push(x any) { *pq = append(*pq, x.(*pqItem)) }
+func (pq *priorityQueue) Pop() any {
+	old := *pq
+	n := len(old)
+	it := old[n-1]
+	old[n-1] = nil
+	*pq = old[:n-1]
+	return it
 }
 
+// FindPath는 8방향 그리드에서 start→goal 최단 경로를 찾아 반환한다.
+// 좌표는 입력 시 int로 캐스팅되어 셀 단위로 처리된다.
+//   - start == goal (같은 셀, 통과 가능): [start] 반환
+//   - 경로 없음 / start·goal이 범위 밖이거나 장애물: nil 반환
 func (g *Grid) FindPath(start, goal Point) []Point {
-	if start == goal {
-		return []Point{start}
-	}
-	if g.IsObstacle(int(goal.X), int(goal.Y)) {
+	sx, sy := int(start.X), int(start.Y)
+	gx, gy := int(goal.X), int(goal.Y)
+
+	if !g.IsValid(sx, sy) || !g.IsValid(gx, gy) {
 		return nil
 	}
-	openList := []*Node{
-		{
-			Point:  start,
-			G:      0,
-			H:      heuristic(start, goal),
-			F:      heuristic(start, goal),
-			Parent: nil,
-		},
+	if sx == gx && sy == gy {
+		return []Point{{X: float64(sx), Y: float64(sy)}}
 	}
 
-	closedSet := make(map[string]bool)
-	gScores := make(map[string]float64)
-	gScores[pointKey(start)] = 0
+	W := g.Width
+	total := W * g.Height
 
-	for len(openList) > 0 {
-		// F 값 작은 노드 찾기
-		currentIndex := 0
-		for i := 1; i < len(openList); i++ {
-			if openList[i].F < openList[currentIndex].F {
-				currentIndex = i
+	gScore := make([]float64, total)
+	parent := make([]int, total)
+	closed := make([]bool, total)
+	for i := range gScore {
+		gScore[i] = math.Inf(1)
+		parent[i] = -1
+	}
+
+	startIdx := g.idx(sx, sy)
+	goalIdx := g.idx(gx, gy)
+	gScore[startIdx] = 0
+
+	pq := &priorityQueue{}
+	heap.Push(pq, &pqItem{x: sx, y: sy, f: heuristic(sx, sy, gx, gy), g: 0})
+
+	for pq.Len() > 0 {
+		cur := heap.Pop(pq).(*pqItem)
+		curIdx := g.idx(cur.x, cur.y)
+
+		// 동일 셀에 대한 stale 항목은 건너뜀
+		if closed[curIdx] {
+			continue
+		}
+		closed[curIdx] = true
+
+		if curIdx == goalIdx {
+			return reconstructPath(parent, startIdx, goalIdx, W)
+		}
+
+		for _, d := range directions8 {
+			nx, ny := cur.x+d[0], cur.y+d[1]
+			if !g.IsValid(nx, ny) {
+				continue
 			}
-		}
-		current := openList[currentIndex]
-
-		if current.Point == goal {
-			return reconstructPath(current)
-		}
-
-		openList = append(openList[:currentIndex], openList[currentIndex+1:]...)
-		closedSet[pointKey(current.Point)] = true
-
-		for _, neighbor := range g.GetNeighbors(current.Point) {
-			key := pointKey(neighbor)
-			if closedSet[key] {
+			nIdx := g.idx(nx, ny)
+			if closed[nIdx] {
 				continue
 			}
 
-			moveCost := 1.0
-			if current.X != neighbor.X && current.Y != neighbor.Y {
-				moveCost = math.Sqrt2
+			step := 1.0
+			if d[0] != 0 && d[1] != 0 {
+				step = math.Sqrt2
 			}
-			tentativeG := current.G + moveCost
+			tentativeG := cur.g + step
 
-			if existingG, ok := gScores[key]; ok && tentativeG >= existingG {
+			if tentativeG >= gScore[nIdx] {
 				continue
 			}
-
-			neighborNode := &Node{
-				Point:  neighbor,
-				G:      tentativeG,
-				H:      heuristic(neighbor, goal),
-				F:      tentativeG + heuristic(neighbor, goal),
-				Parent: current,
-			}
-
-			gScores[key] = tentativeG
-			openList = append(openList, neighborNode)
+			gScore[nIdx] = tentativeG
+			parent[nIdx] = curIdx
+			heap.Push(pq, &pqItem{
+				x: nx,
+				y: ny,
+				f: tentativeG + heuristic(nx, ny, gx, gy),
+				g: tentativeG,
+			})
 		}
 	}
 	return nil
 }
 
-func reconstructPath(n *Node) []Point {
-	var path []Point
-	for n != nil {
-		path = append([]Point{n.Point}, path...)
-		n = n.Parent
+func reconstructPath(parent []int, startIdx, goalIdx, width int) []Point {
+	path := make([]Point, 0, 32)
+	for cur := goalIdx; cur != -1; cur = parent[cur] {
+		x := cur % width
+		y := cur / width
+		path = append(path, Point{X: float64(x), Y: float64(y)})
+		if cur == startIdx {
+			break
+		}
+	}
+	for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
+		path[i], path[j] = path[j], path[i]
 	}
 	return path
 }

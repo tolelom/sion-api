@@ -53,17 +53,3 @@ func InitDatabase() error {
 func GetDB() *gorm.DB {
 	return db
 }
-
-func LogAGVEvent(msg models.WebSocketMessage, agvID string, userID string) error {
-	LogWebSocketMessage(agvID, msg)
-	return nil
-}
-
-func GetRecentLogs(agvID string, limit int) ([]models.AGVLog, error) {
-	var logs []models.AGVLog
-	err := db.Where("agv_id = ?", agvID).
-		Order("created_at DESC").
-		Limit(limit).
-		Find(&logs).Error
-	return logs, err
-}

@@ -7,21 +7,24 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
+// Coord2D는 pathfinding 요청의 시작/목표 좌표(연속값).
+type Coord2D struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+}
+
+// GridCell은 장애물의 격자 좌표(정수값).
+type GridCell struct {
+	X int `json:"x"`
+	Y int `json:"y"`
+}
+
 type PathfindingRequest struct {
-	Start struct {
-		X float64 `json:"x"`
-		Y float64 `json:"y"`
-	} `json:"start"`
-	Goal struct {
-		X float64 `json:"x"`
-		Y float64 `json:"y"`
-	} `json:"goal"`
-	MapWidth  int `json:"map_width"`
-	MapHeight int `json:"map_height"`
-	Obstacles []struct {
-		X int `json:"x"`
-		Y int `json:"y"`
-	} `json:"obstacles"`
+	Start     Coord2D    `json:"start"`
+	Goal      Coord2D    `json:"goal"`
+	MapWidth  int        `json:"map_width"`
+	MapHeight int        `json:"map_height"`
+	Obstacles []GridCell `json:"obstacles"`
 }
 
 type PathfindingResponse struct {

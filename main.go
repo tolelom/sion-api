@@ -6,6 +6,7 @@ import (
 	"sion-backend/handlers"
 	"sion-backend/models"
 	"sion-backend/services"
+	"strconv"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -14,6 +15,20 @@ import (
 	"github.com/gofiber/websocket/v2"
 	"github.com/joho/godotenv"
 )
+
+// envInt는 환경변수를 int로 파싱한다. 미설정/파싱 실패/0 이하면 fallback을 사용한다.
+func envInt(key string, fallback int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		log.Printf("[WARN] env %s=%q 파싱 실패, fallback=%d 사용", key, v, fallback)
+		return fallback
+	}
+	return n
+}
 
 func main() {
 	if err := godotenv.Load(); err != nil {
@@ -24,7 +39,12 @@ func main() {
 		log.Fatalf("[FATAL] DB 초기화 실패: %v", err)
 	}
 
-	services.InitLogging(50, 10*time.Second)
+	services.InitLogging(services.LogConfig{
+		FlushSize:     envInt("LOG_FLUSH_SIZE", 50),
+		FlushInterval: time.Duration(envInt("LOG_FLUSH_INTERVAL_SEC", 10)) * time.Second,
+		MaxRetries:    envInt("LOG_MAX_RETRIES", 3),
+		MaxFailedLogs: envInt("LOG_MAX_FAILED", 500),
+	})
 	defer services.StopLogging()
 
 	cm := services.NewClientManager()

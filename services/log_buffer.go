@@ -7,9 +7,20 @@ import (
 	"time"
 )
 
+// LogConfig는 로깅 버퍼·재시도 정책을 한 곳에 모은다.
+// 값이 0 이하인 필드는 InitLogging에서 기본값으로 대체된다.
+type LogConfig struct {
+	FlushSize     int           // 메모리 버퍼가 이 크기에 도달하면 즉시 Flush 트리거
+	FlushInterval time.Duration // autoFlush 주기
+	MaxRetries    int           // 실패 로그 재시도 횟수 한도 (초과 시 폐기)
+	MaxFailedLogs int           // 실패 큐 상한 (초과 시 오래된 것부터 폐기)
+}
+
 const (
-	maxRetries    = 3
-	maxFailedLogs = 500
+	defaultFlushSize     = 50
+	defaultFlushInterval = 10 * time.Second
+	defaultMaxRetries    = 3
+	defaultMaxFailedLogs = 500
 )
 
 type retryableLog struct {
@@ -18,30 +29,48 @@ type retryableLog struct {
 }
 
 type LogBuffer struct {
-	logs       []models.AGVLog
-	failedLogs []retryableLog
-	mu         sync.Mutex
-	flushSize  int
-	flushTime  time.Duration
-	stopChan   chan struct{}
-	doneChan   chan struct{}
+	logs          []models.AGVLog
+	failedLogs    []retryableLog
+	mu            sync.Mutex
+	flushSize     int
+	flushTime     time.Duration
+	maxRetries    int
+	maxFailedLogs int
+	stopChan      chan struct{}
+	doneChan      chan struct{}
 }
 
 var logBuffer *LogBuffer
 
-func InitLogging(flushSize int, flushInterval time.Duration) {
+func InitLogging(cfg LogConfig) {
+	if cfg.FlushSize <= 0 {
+		cfg.FlushSize = defaultFlushSize
+	}
+	if cfg.FlushInterval <= 0 {
+		cfg.FlushInterval = defaultFlushInterval
+	}
+	if cfg.MaxRetries <= 0 {
+		cfg.MaxRetries = defaultMaxRetries
+	}
+	if cfg.MaxFailedLogs <= 0 {
+		cfg.MaxFailedLogs = defaultMaxFailedLogs
+	}
+
 	logBuffer = &LogBuffer{
-		logs:       make([]models.AGVLog, 0, flushSize*2),
-		failedLogs: make([]retryableLog, 0),
-		flushSize:  flushSize,
-		flushTime:  flushInterval,
-		stopChan:   make(chan struct{}),
-		doneChan:   make(chan struct{}),
+		logs:          make([]models.AGVLog, 0, cfg.FlushSize*2),
+		failedLogs:    make([]retryableLog, 0),
+		flushSize:     cfg.FlushSize,
+		flushTime:     cfg.FlushInterval,
+		maxRetries:    cfg.MaxRetries,
+		maxFailedLogs: cfg.MaxFailedLogs,
+		stopChan:      make(chan struct{}),
+		doneChan:      make(chan struct{}),
 	}
 
 	go logBuffer.autoFlush()
 
-	log.Printf("[INFO] 로깅 시스템 초기화 (flushSize=%d, interval=%v)", flushSize, flushInterval)
+	log.Printf("[INFO] 로깅 시스템 초기화 (flushSize=%d, interval=%v, maxRetries=%d, maxFailedLogs=%d)",
+		cfg.FlushSize, cfg.FlushInterval, cfg.MaxRetries, cfg.MaxFailedLogs)
 }
 
 // StopLogging은 autoFlush 고루틴의 마지막 Flush가 끝날 때까지 동기 대기한다.
@@ -123,8 +152,8 @@ func (lb *LogBuffer) Flush() {
 			log.Printf("[ERROR] 재시도 로그 저장 실패: %v", err)
 			for _, rl := range retryLogs {
 				rl.RetryCount++
-				if rl.RetryCount >= maxRetries {
-					log.Printf("[WARN] 로그 재시도 %d회 초과, 폐기", maxRetries)
+				if rl.RetryCount >= lb.maxRetries {
+					log.Printf("[WARN] 로그 재시도 %d회 초과, 폐기", lb.maxRetries)
 				} else {
 					stillFailed = append(stillFailed, rl)
 				}
@@ -148,8 +177,8 @@ func (lb *LogBuffer) Flush() {
 	if len(stillFailed) > 0 {
 		lb.mu.Lock()
 		lb.failedLogs = append(lb.failedLogs, stillFailed...)
-		if len(lb.failedLogs) > maxFailedLogs {
-			dropped := len(lb.failedLogs) - maxFailedLogs
+		if len(lb.failedLogs) > lb.maxFailedLogs {
+			dropped := len(lb.failedLogs) - lb.maxFailedLogs
 			lb.failedLogs = lb.failedLogs[dropped:]
 			log.Printf("[WARN] 실패 로그 큐 초과, %d개 폐기", dropped)
 		}

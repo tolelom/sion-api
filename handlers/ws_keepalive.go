@@ -25,23 +25,29 @@ var (
 // 별도 goroutine에서 주기적으로 ping을 보내는 keepalive 루틴을 시작한다.
 // 호출자는 read 루프 종료 직전에 반환된 stop 함수를 호출해 ping goroutine을 정리해야 한다.
 func installKeepalive(cm *services.ClientManager, c *websocket.Conn, label string) (stop func()) {
-	if err := c.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
+	// 호출 시점에 패키지 var를 캡처해 클로저·고루틴이 이후 변경(테스트의 shortenKeepalive 등)과
+	// race를 일으키지 않게 한다. 핸들러가 종료될 때까지 이 값들은 변하지 않는다.
+	pw := pongWait
+	pp := pingPeriod
+	ww := writeWait
+
+	if err := c.SetReadDeadline(time.Now().Add(pw)); err != nil {
 		log.Printf("[WARN] %s SetReadDeadline 실패: %v", label, err)
 	}
 	c.SetPongHandler(func(string) error {
-		return c.SetReadDeadline(time.Now().Add(pongWait))
+		return c.SetReadDeadline(time.Now().Add(pw))
 	})
 
 	stopCh := make(chan struct{})
 	doneCh := make(chan struct{})
 	go func() {
 		defer close(doneCh)
-		ticker := time.NewTicker(pingPeriod)
+		ticker := time.NewTicker(pp)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
-				if err := cm.WriteControl(c, websocket.PingMessage, nil, time.Now().Add(writeWait)); err != nil {
+				if err := cm.WriteControl(c, websocket.PingMessage, nil, time.Now().Add(ww)); err != nil {
 					log.Printf("[INFO] %s ping 실패, keepalive 종료: %v", label, err)
 					return
 				}

@@ -9,27 +9,19 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-var llmService *services.LLMService
-var broker *services.Broker
-
-func InitLLMService() {
-	llmService = services.NewLLMServiceFromEnv()
-	if llmService == nil {
-		log.Println("[WARN] LLM 서비스 초기화 실패")
-		return
-	}
-	log.Printf("[INFO] LLM 서비스 초기화 완료 (model=%s)", llmService.Model)
+// ChatHandler는 LLM/Broker 의존성을 명시적으로 보유한다.
+// 이전 구현은 패키지 전역(llmService, broker) + Init*() 패턴이라
+// 초기화 누락 시 nil-deref 위험과 테스트 격리 어려움이 있었다.
+type ChatHandler struct {
+	llm    *services.LLMService
+	broker *services.Broker
 }
 
-func InitBroker(b *services.Broker) {
-	broker = b
+func NewChatHandler(llm *services.LLMService, broker *services.Broker) *ChatHandler {
+	return &ChatHandler{llm: llm, broker: broker}
 }
 
-func GetLLMService() *services.LLMService {
-	return llmService
-}
-
-func HandleChat(c *fiber.Ctx) error {
+func (h *ChatHandler) HandleChat(c *fiber.Ctx) error {
 	var chatData models.ChatMessageData
 	if err := c.BodyParser(&chatData); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -37,7 +29,7 @@ func HandleChat(c *fiber.Ctx) error {
 		})
 	}
 
-	if llmService == nil {
+	if h.llm == nil {
 		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
 			"error": "LLM 서비스가 초기화되지 않았습니다",
 		})
@@ -46,43 +38,43 @@ func HandleChat(c *fiber.Ctx) error {
 	log.Printf("[INFO] 채팅 수신: %s", chatData.Message)
 
 	var status *models.AGVStatus
-	if broker != nil {
-		status = broker.GetAGVStatus()
+	if h.broker != nil {
+		if s, ok := h.broker.GetAGVStatus(); ok {
+			status = &s
+		}
 	}
 
-	response, err := llmService.AnswerQuestion(chatData.Message, status)
+	response, err := h.llm.AnswerQuestion(chatData.Message, status)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "AI 응답 생성 실패: " + err.Error(),
 		})
 	}
 
-	if broker != nil {
-		broker.BroadcastToWeb(models.WebSocketMessage{
-			Type: models.MessageTypeChatResponse,
-			Data: models.ChatResponseData{
-				Message:   response,
-				Model:     llmService.Model,
-				Timestamp: time.Now().UnixMilli(),
-			},
+	if h.broker != nil {
+		h.broker.BroadcastToWeb(models.NewMessage(models.MessageTypeChatResponse, models.ChatResponseData{
+			Message:   response,
+			Model:     h.llm.Model,
 			Timestamp: time.Now().UnixMilli(),
-		})
+		}, time.Now().UnixMilli()))
 	}
 
 	return c.JSON(fiber.Map{"success": true, "response": response})
 }
 
-func ExplainAGVEvent(eventType string, agvStatus *models.AGVStatus) {
-	if llmService == nil {
+// ExplainAGVEvent는 LLM으로 이벤트 해설을 생성해 web으로 브로드캐스트한다.
+// LLM 호출은 외부 IO라 호출자를 블록하지 않도록 항상 비동기로 수행한다.
+func (h *ChatHandler) ExplainAGVEvent(eventType string, agvStatus *models.AGVStatus) {
+	if h.llm == nil {
 		return
 	}
 	go func() {
-		explanation, err := llmService.ExplainEvent(eventType, agvStatus)
+		explanation, err := h.llm.ExplainEvent(eventType, agvStatus)
 		if err != nil {
 			log.Printf("[ERROR] 이벤트 설명 생성 실패: %v", err)
 			return
 		}
-		if broker == nil {
+		if h.broker == nil {
 			return
 		}
 		eventData := models.AGVEventData{
@@ -93,10 +85,6 @@ func ExplainAGVEvent(eventType string, agvStatus *models.AGVStatus) {
 		if agvStatus != nil {
 			eventData.Position = agvStatus.Position
 		}
-		broker.BroadcastToWeb(models.WebSocketMessage{
-			Type:      models.MessageTypeAGVEvent,
-			Data:      eventData,
-			Timestamp: time.Now().UnixMilli(),
-		})
+		h.broker.BroadcastToWeb(models.NewMessage(models.MessageTypeAGVEvent, eventData, time.Now().UnixMilli()))
 	}()
 }

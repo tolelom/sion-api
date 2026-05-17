@@ -10,19 +10,14 @@ import (
 
 func NewTestPositionHandler(br *services.Broker) fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		msg := models.WebSocketMessage{
-			Type: models.MessageTypePosition,
-			Data: models.PositionData{
-				X:         10.5,
-				Y:         15.2,
-				Angle:     1.57,
-				Timestamp: time.Now(),
-			},
-			Timestamp: time.Now().UnixMilli(),
+		pos := models.PositionData{
+			X:         10.5,
+			Y:         15.2,
+			Angle:     1.57,
+			Timestamp: time.Now(),
 		}
-
-		br.BroadcastToWeb(msg)
-		services.LogAGVPosition("sion-001", msg.Data.(models.PositionData))
+		br.BroadcastToWeb(models.NewMessage(models.MessageTypePosition, pos, time.Now().UnixMilli()))
+		services.LogAGVPosition("sion-001", pos)
 
 		return c.JSON(fiber.Map{
 			"success": true,
@@ -33,16 +28,12 @@ func NewTestPositionHandler(br *services.Broker) fiber.Handler {
 
 func NewTestStatusHandler(br *services.Broker) fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		msg := models.WebSocketMessage{
-			Type: models.MessageTypeStatus,
-			Data: map[string]interface{}{
-				"battery": 85,
-				"speed":   1.5,
-				"mode":    "auto",
-				"state":   "moving",
-			},
-			Timestamp: time.Now().UnixMilli(),
-		}
+		msg := models.NewMessage(models.MessageTypeStatus, map[string]interface{}{
+			"battery": 85,
+			"speed":   1.5,
+			"mode":    "auto",
+			"state":   "moving",
+		}, time.Now().UnixMilli())
 
 		br.BroadcastToWeb(msg)
 		services.LogWebSocketMessage("sion-001", msg)
@@ -54,7 +45,7 @@ func NewTestStatusHandler(br *services.Broker) fiber.Handler {
 	}
 }
 
-func NewTestEventHandler(br *services.Broker) fiber.Handler {
+func NewTestEventHandler(br *services.Broker, chatH *ChatHandler) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		testStatus := &models.AGVStatus{
 			ID:   "sion-001",
@@ -82,7 +73,7 @@ func NewTestEventHandler(br *services.Broker) fiber.Handler {
 		if testStatus.TargetEnemy != nil {
 			services.LogTargetFound("sion-001", testStatus.TargetEnemy)
 		}
-		ExplainAGVEvent("target_change", testStatus)
+		chatH.ExplainAGVEvent("target_change", testStatus)
 
 		return c.JSON(fiber.Map{
 			"success": true,

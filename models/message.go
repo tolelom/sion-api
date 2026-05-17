@@ -1,6 +1,10 @@
 package models
 
-import "time"
+import (
+	"encoding/json"
+	"log"
+	"time"
+)
 
 // AGV -> Server -> Web
 const (
@@ -36,10 +40,38 @@ const (
 	MessageTypeError           = "error"
 )
 
+// WebSocketMessage의 Data는 json.RawMessage로 유지한다.
+// interface{} 시절에는 호출 측이 map/struct를 그대로 넣고 소비 측이 동적 캐스트 또는
+// re-marshal/unmarshal로 풀어야 해 직렬화가 1~3회 반복됐다. RawMessage는 생성 시점에
+// 한 번 marshal해 두고 소비 시점에 strongly-typed unmarshal 1회만 한다.
 type WebSocketMessage struct {
-	Type      string      `json:"type"`
-	Data      interface{} `json:"data"`
-	Timestamp int64       `json:"timestamp"`
+	Type      string          `json:"type"`
+	Data      json.RawMessage `json:"data"`
+	Timestamp int64           `json:"timestamp"`
+}
+
+// NewMessage는 data를 즉시 marshal해 WebSocketMessage로 감싼다.
+// data가 nil이면 Data는 nil이 된다.
+// timestamp가 0이면 호출 시각으로 채운다(생성 호출 대부분이 time.Now().UnixMilli()을 그대로 넘기던 패턴 단순화).
+// marshal 실패는 plain struct/map에서는 사실상 발생하지 않으므로 로그만 남기고 빈 Data로 반환한다.
+func NewMessage(msgType string, data any, timestamp int64) WebSocketMessage {
+	var raw json.RawMessage
+	if data != nil {
+		b, err := json.Marshal(data)
+		if err != nil {
+			log.Printf("[WARN] NewMessage(%s) marshal 실패: %v", msgType, err)
+		} else {
+			raw = b
+		}
+	}
+	if timestamp == 0 {
+		timestamp = time.Now().UnixMilli()
+	}
+	return WebSocketMessage{
+		Type:      msgType,
+		Data:      raw,
+		Timestamp: timestamp,
+	}
 }
 
 type PositionData struct {

@@ -30,8 +30,8 @@ func main() {
 	cm := services.NewClientManager()
 	br := services.NewBroker(cm)
 
-	handlers.InitLLMService()
-	handlers.InitBroker(br)
+	llm := services.NewLLMServiceFromEnv()
+	chatH := handlers.NewChatHandler(llm, br)
 
 	sim := services.NewAGVSimulator(func(msg models.WebSocketMessage) {
 		br.BroadcastToWeb(msg)
@@ -62,7 +62,7 @@ func main() {
 		})
 	})
 
-	api.Post("/chat", handlers.HandleChat)
+	api.Post("/chat", chatH.HandleChat)
 	api.Post("/pathfinding", handlers.HandlePathfinding)
 
 	logsAPI := api.Group("/logs")
@@ -79,7 +79,7 @@ func main() {
 	testAPI := api.Group("/test")
 	testAPI.Post("/position", handlers.NewTestPositionHandler(br))
 	testAPI.Post("/status", handlers.NewTestStatusHandler(br))
-	testAPI.Post("/event", handlers.NewTestEventHandler(br))
+	testAPI.Post("/event", handlers.NewTestEventHandler(br, chatH))
 
 	app.Use("/websocket", func(c *fiber.Ctx) error {
 		if websocket.IsWebSocketUpgrade(c) {
@@ -90,7 +90,7 @@ func main() {
 	})
 
 	app.Get("/websocket/agv", websocket.New(handlers.NewAGVHandler(cm, br)))
-	app.Get("/websocket/web", websocket.New(handlers.NewWebHandler(cm, br, handlers.GetLLMService())))
+	app.Get("/websocket/web", websocket.New(handlers.NewWebHandler(cm, br, llm)))
 
 	port := os.Getenv("PORT")
 	if port == "" {

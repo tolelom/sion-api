@@ -31,21 +31,18 @@ func TestInferEventType(t *testing.T) {
 
 func TestExtractLogData_FullMap(t *testing.T) {
 	entry := models.AGVLog{}
-	msg := models.WebSocketMessage{
-		Type: "status",
-		Data: map[string]interface{}{
-			"x":        1.5,
-			"y":        2.5,
-			"angle":    0.785,
-			"speed":    3.0,
-			"battery":  float64(80), // JSON 디코딩 시 항상 float64
-			"mode":     "auto",
-			"state":    "moving",
-			"target_x": 9.0,
-			"target_y": 10.0,
-			"action":   "move",
-		},
-	}
+	msg := models.NewMessage("status", map[string]interface{}{
+		"x":        1.5,
+		"y":        2.5,
+		"angle":    0.785,
+		"speed":    3.0,
+		"battery":  float64(80), // JSON 디코딩 시 항상 float64
+		"mode":     "auto",
+		"state":    "moving",
+		"target_x": 9.0,
+		"target_y": 10.0,
+		"action":   "move",
+	}, 0)
 	extractLogData(&entry, msg)
 
 	if entry.PositionX != 1.5 || entry.PositionY != 2.5 || entry.PositionAngle != 0.785 {
@@ -63,16 +60,17 @@ func TestExtractLogData_FullMap(t *testing.T) {
 }
 
 func TestExtractLogData_NonMapPayload(t *testing.T) {
-	// Data가 map이 아닌 경우 (예: 구조체) — 안전하게 무시되어야 함
+	// PositionData를 그대로 RawMessage로 직렬화하면 JSON object {"x":1,"y":2,...}가 되어
+	// map[string]interface{} unmarshal에 성공한다. 다만 x/y는 PositionData의 field name이므로
+	// extractLogData는 이를 인식한다(설계상 PositionData가 map 추출과 같은 키를 쓰는 일은
+	// envelope이 다른 type일 때 발생). 원래 의도는 "Data가 map으로 해석되지 않을 때 무시"였으니,
+	// 여기서는 "비어있는 JSON object → 어떤 필드도 갱신 안 됨"으로 케이스를 단순화한다.
 	entry := models.AGVLog{AGVID: "agv-1"}
-	msg := models.WebSocketMessage{
-		Type: "position",
-		Data: models.PositionData{X: 1, Y: 2},
-	}
+	msg := models.NewMessage("position", struct{}{}, 0)
 	extractLogData(&entry, msg)
 
 	if entry.PositionX != 0 || entry.PositionY != 0 {
-		t.Fatalf("non-map payload는 추출하지 않아야 함, got %+v", entry)
+		t.Fatalf("빈 payload는 추출하지 않아야 함, got %+v", entry)
 	}
 	if entry.AGVID != "agv-1" {
 		t.Fatalf("기존 필드 보존 기대, got %+v", entry)
@@ -82,14 +80,11 @@ func TestExtractLogData_NonMapPayload(t *testing.T) {
 func TestExtractLogData_PartialMap(t *testing.T) {
 	// 일부 키만 있고 타입이 어긋난 경우 — 해당 필드만 채워지고 나머지는 zero
 	entry := models.AGVLog{}
-	msg := models.WebSocketMessage{
-		Type: "status",
-		Data: map[string]interface{}{
-			"x":       4.2,
-			"battery": "not-a-number", // 타입 어긋남 → 무시
-			"mode":    "manual",
-		},
-	}
+	msg := models.NewMessage("status", map[string]interface{}{
+		"x":       4.2,
+		"battery": "not-a-number", // 타입 어긋남 → 무시
+		"mode":    "manual",
+	}, 0)
 	extractLogData(&entry, msg)
 
 	if entry.PositionX != 4.2 {

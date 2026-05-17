@@ -16,7 +16,7 @@ func TestSimulatorStartStopUnderLoad(t *testing.T) {
 	sim := NewAGVSimulator(func(_ models.WebSocketMessage) {
 		broadcasts.Add(1)
 	})
-	sim.UpdateInterval = 5 * time.Millisecond // 빠른 틱
+	sim.SetUpdateInterval(5 * time.Millisecond) // 빠른 틱
 
 	var wg sync.WaitGroup
 	stop := make(chan struct{})

@@ -2,7 +2,6 @@ package services
 
 import (
 	"encoding/json"
-	"log"
 	"sion-backend/models"
 	"time"
 )
@@ -86,18 +85,13 @@ func LogAIExplanation(agvID string, eventType string, explanation string) {
 }
 
 func LogWebSocketMessage(agvID string, msg models.WebSocketMessage) {
-	dataJSON, err := json.Marshal(msg.Data)
-	if err != nil {
-		log.Printf("[WARN] 로그 데이터 직렬화 실패 (type=%s): %v", msg.Type, err)
-		dataJSON = nil
-	}
-
+	// msg.Data는 RawMessage이므로 추가 직렬화 없이 그대로 저장한다.
 	logEntry := models.AGVLog{
 		CreatedAt:   time.Now(),
 		EventType:   inferEventType(msg.Type),
 		MessageType: msg.Type,
 		AGVID:       agvID,
-		DataJSON:    string(dataJSON),
+		DataJSON:    string(msg.Data),
 	}
 
 	extractLogData(&logEntry, msg)
@@ -106,8 +100,11 @@ func LogWebSocketMessage(agvID string, msg models.WebSocketMessage) {
 }
 
 func extractLogData(logEntry *models.AGVLog, msg models.WebSocketMessage) {
-	dataMap, ok := msg.Data.(map[string]interface{})
-	if !ok {
+	if len(msg.Data) == 0 {
+		return
+	}
+	var dataMap map[string]interface{}
+	if err := json.Unmarshal(msg.Data, &dataMap); err != nil {
 		return
 	}
 

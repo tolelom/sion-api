@@ -156,32 +156,28 @@ func TestWS_AGVStatusBroadcastsToWeb(t *testing.T) {
 	// 우린 곧장 status를 보낼 거라 그 알림은 readUntilType이 건너뛴다.
 	waitFor(t, 1*time.Second, srv.broker.IsAGVConnected, "AGV connected wait")
 
-	statusMsg := models.WebSocketMessage{
-		Type: models.MessageTypeStatus,
-		Data: map[string]any{
-			"position": map[string]any{"x": 1.0, "y": 2.0, "angle": 0.0},
-			"battery":  77,
-		},
-		Timestamp: time.Now().UnixMilli(),
-	}
+	statusMsg := models.NewMessage(models.MessageTypeStatus, map[string]any{
+		"position": map[string]any{"x": 1.0, "y": 2.0, "angle": 0.0},
+		"battery":  77,
+	}, time.Now().UnixMilli())
 	raw, _ := json.Marshal(statusMsg)
 	if err := agv.WriteMessage(websocket.TextMessage, raw); err != nil {
 		t.Fatalf("AGV WriteMessage 실패: %v", err)
 	}
 
 	got := readUntilType(t, web, models.MessageTypeStatus, 1*time.Second)
-	data, ok := got.Data.(map[string]any)
-	if !ok {
-		t.Fatalf("Data가 map이 아님: %T", got.Data)
+	var data map[string]any
+	if err := json.Unmarshal(got.Data, &data); err != nil {
+		t.Fatalf("Data unmarshal 실패: %v (raw=%s)", err, got.Data)
 	}
 	if data["battery"].(float64) != 77 {
 		t.Fatalf("expected battery=77, got %v", data["battery"])
 	}
 
 	// broker가 마지막 status를 캐시했는지도 검증
-	cached := srv.broker.GetAGVStatus()
-	if cached == nil {
-		t.Fatalf("broker.GetAGVStatus가 nil")
+	cached, ok := srv.broker.GetAGVStatus()
+	if !ok {
+		t.Fatalf("broker.GetAGVStatus 캐시 없음")
 	}
 	if cached.Battery != 77 {
 		t.Fatalf("expected cached battery=77, got %d", cached.Battery)
@@ -200,17 +196,17 @@ func TestWS_WebCommandRoutesToAGV(t *testing.T) {
 	web := srv.dial(t, "/websocket/web")
 	readUntilType(t, web, models.MessageTypeSystemInfo, 1*time.Second)
 
-	cmd := models.WebSocketMessage{
-		Type: models.MessageTypeCommand,
-		Data: map[string]any{"action": "go", "x": 5, "y": 6},
-	}
+	cmd := models.NewMessage(models.MessageTypeCommand, map[string]any{"action": "go", "x": 5, "y": 6}, time.Now().UnixMilli())
 	raw, _ := json.Marshal(cmd)
 	if err := web.WriteMessage(websocket.TextMessage, raw); err != nil {
 		t.Fatalf("Web WriteMessage 실패: %v", err)
 	}
 
 	got := readUntilType(t, agv, models.MessageTypeCommand, 1*time.Second)
-	data := got.Data.(map[string]any)
+	var data map[string]any
+	if err := json.Unmarshal(got.Data, &data); err != nil {
+		t.Fatalf("Data unmarshal 실패: %v (raw=%s)", err, got.Data)
+	}
 	if data["action"].(string) != "go" {
 		t.Fatalf("expected action=go, got %v", data["action"])
 	}
@@ -230,7 +226,10 @@ func TestWS_WebInvalidJSON_ReceivesError(t *testing.T) {
 	}
 
 	got := readUntilType(t, web, models.MessageTypeError, 1*time.Second)
-	data := got.Data.(map[string]any)
+	var data map[string]any
+	if err := json.Unmarshal(got.Data, &data); err != nil {
+		t.Fatalf("Data unmarshal 실패: %v (raw=%s)", err, got.Data)
+	}
 	if data["message"] == nil {
 		t.Fatalf("error.message가 nil: %v", got.Data)
 	}
@@ -253,7 +252,10 @@ func TestWS_AGVDisconnect_NotifiesWeb(t *testing.T) {
 	}
 
 	got := readUntilType(t, web, models.MessageTypeAGVDisconnected, 2*time.Second)
-	data := got.Data.(map[string]any)
+	var data map[string]any
+	if err := json.Unmarshal(got.Data, &data); err != nil {
+		t.Fatalf("Data unmarshal 실패: %v (raw=%s)", err, got.Data)
+	}
 	if data["connected"].(bool) {
 		t.Fatalf("expected connected=false, got %v", data["connected"])
 	}

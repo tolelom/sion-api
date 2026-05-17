@@ -23,7 +23,8 @@ type LogBuffer struct {
 	mu         sync.Mutex
 	flushSize  int
 	flushTime  time.Duration
-	stopChan   chan bool
+	stopChan   chan struct{}
+	doneChan   chan struct{}
 }
 
 var logBuffer *LogBuffer
@@ -34,7 +35,8 @@ func InitLogging(flushSize int, flushInterval time.Duration) {
 		failedLogs: make([]retryableLog, 0),
 		flushSize:  flushSize,
 		flushTime:  flushInterval,
-		stopChan:   make(chan bool),
+		stopChan:   make(chan struct{}),
+		doneChan:   make(chan struct{}),
 	}
 
 	go logBuffer.autoFlush()
@@ -42,14 +44,19 @@ func InitLogging(flushSize int, flushInterval time.Duration) {
 	log.Printf("[INFO] 로깅 시스템 초기화 (flushSize=%d, interval=%v)", flushSize, flushInterval)
 }
 
+// StopLogging은 autoFlush 고루틴의 마지막 Flush가 끝날 때까지 동기 대기한다.
+// 이전 구현은 stopChan 송신 직후 리턴해서 프로세스 종료 시 버퍼/재시도 큐가 유실됐다.
 func StopLogging() {
-	if logBuffer != nil {
-		logBuffer.stopChan <- true
-		log.Println("[INFO] 로깅 시스템 종료")
+	if logBuffer == nil {
+		return
 	}
+	close(logBuffer.stopChan)
+	<-logBuffer.doneChan
+	log.Println("[INFO] 로깅 시스템 종료")
 }
 
 func (lb *LogBuffer) autoFlush() {
+	defer close(lb.doneChan)
 	ticker := time.NewTicker(lb.flushTime)
 	defer ticker.Stop()
 

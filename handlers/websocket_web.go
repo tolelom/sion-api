@@ -22,14 +22,10 @@ func NewWebHandler(cm *services.ClientManager, broker *services.Broker, llm *ser
 			"connected_at":  time.Now().Format(time.RFC3339),
 			"agv_connected": broker.IsAGVConnected(),
 		}
-		if agvStatus := broker.GetAGVStatus(); agvStatus != nil {
+		if agvStatus, ok := broker.GetAGVStatus(); ok {
 			welcomeData["agv_status"] = agvStatus
 		}
-		welcomeMsg := models.WebSocketMessage{
-			Type:      models.MessageTypeSystemInfo,
-			Data:      welcomeData,
-			Timestamp: time.Now().UnixMilli(),
-		}
+		welcomeMsg := models.NewMessage(models.MessageTypeSystemInfo, welcomeData, time.Now().UnixMilli())
 		if err := cm.WriteJSON(c, welcomeMsg); err != nil {
 			log.Printf("[WARN] welcome 메시지 전송 실패: %v", err)
 		}
@@ -60,14 +56,10 @@ func NewWebHandler(cm *services.ClientManager, broker *services.Broker, llm *ser
 
 			switch msg.Type {
 			case models.MessageTypeChat:
+				// Data가 RawMessage라 한 번에 strongly-typed unmarshal한다.
+				// (이전 패턴은 interface{} → marshal → unmarshal 이중 직렬화였다.)
 				var chatData models.ChatMessageData
-				raw, err := json.Marshal(msg.Data)
-				if err != nil {
-					log.Printf("[WARN] chat marshal 실패: %v", err)
-					sendInvalidPayloadError(cm, c, "잘못된 chat 페이로드")
-					break
-				}
-				if err := json.Unmarshal(raw, &chatData); err != nil {
+				if err := json.Unmarshal(msg.Data, &chatData); err != nil {
 					log.Printf("[WARN] chat 파싱 실패: %v", err)
 					sendInvalidPayloadError(cm, c, "잘못된 chat 페이로드")
 					break
@@ -87,11 +79,7 @@ func NewWebHandler(cm *services.ClientManager, broker *services.Broker, llm *ser
 }
 
 func sendInvalidPayloadError(cm *services.ClientManager, c *websocket.Conn, reason string) {
-	errMsg := models.WebSocketMessage{
-		Type:      models.MessageTypeError,
-		Data:      map[string]interface{}{"message": reason},
-		Timestamp: time.Now().UnixMilli(),
-	}
+	errMsg := models.NewMessage(models.MessageTypeError, map[string]interface{}{"message": reason}, time.Now().UnixMilli())
 	if err := cm.WriteJSON(c, errMsg); err != nil {
 		log.Printf("[WARN] 에러 메시지 전송 실패: %v", err)
 	}
@@ -102,19 +90,18 @@ func handleChatViaWebSocket(message string, broker *services.Broker, llm *servic
 		log.Println("[WARN] LLM 서비스 미초기화")
 		return
 	}
-	status := broker.GetAGVStatus()
+	var status *models.AGVStatus
+	if s, ok := broker.GetAGVStatus(); ok {
+		status = &s
+	}
 	response, err := llm.AnswerQuestion(message, status)
 	if err != nil {
 		log.Printf("[ERROR] LLM 응답 실패: %v", err)
 		return
 	}
-	broker.BroadcastToWeb(models.WebSocketMessage{
-		Type: models.MessageTypeChatResponse,
-		Data: models.ChatResponseData{
-			Message:   response,
-			Model:     llm.Model,
-			Timestamp: time.Now().UnixMilli(),
-		},
+	broker.BroadcastToWeb(models.NewMessage(models.MessageTypeChatResponse, models.ChatResponseData{
+		Message:   response,
+		Model:     llm.Model,
 		Timestamp: time.Now().UnixMilli(),
-	})
+	}, time.Now().UnixMilli()))
 }

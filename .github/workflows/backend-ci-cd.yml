@@ -21,6 +21,13 @@ jobs:
         with:
           go-version: '1.25.x'
 
+      - name: 의존성 다운로드
+        run: go mod download
+
+      - name: 테스트
+        # pure-Go sqlite (glebarez/sqlite)를 쓰므로 CGO 없이도 모든 테스트가 통과한다.
+        run: CGO_ENABLED=0 go test ./...
+
       - name: 바이너리 빌드
         run: GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o server .
 

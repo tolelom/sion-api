@@ -51,38 +51,5 @@ jobs:
           push: true
           tags: ghcr.io/tolelom/sion-api:latest
           platforms: linux/arm64
-
-      - name: 시크릿 존재 여부 확인
-        # 시크릿 값 자체는 노출하지 않고 비어있는지만 출력. 비어있으면 즉시 실패시켜
-        # SSH 단계에 가기 전에 원인을 명확히 한다.
-        run: |
-          missing=""
-          [ -z "${{ secrets.SERVER_HOST }}" ] && missing="$missing SERVER_HOST"
-          [ -z "${{ secrets.SERVER_USER }}" ] && missing="$missing SERVER_USER"
-          [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ] && missing="$missing SSH_PRIVATE_KEY"
-          if [ -n "$missing" ]; then
-            echo "::error::필수 시크릿 누락:$missing"
-            exit 1
-          fi
-          echo "필수 시크릿 모두 존재."
-
-      - name: 서버에 배포
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: 22
-          # SSH handshake / 명령 실패 지점을 정확히 보이게 한다.
-          debug: true
-          script_stop: true
-          command_timeout: 5m
-          script: |
-            set -euxo pipefail
-            export PATH=$PATH:/usr/local/bin:/opt/homebrew/bin:$HOME/.docker/bin
-            echo "host=$(hostname) user=$(whoami) pwd=$(pwd)"
-            ls -la ~/server || { echo "ERROR: ~/server 디렉토리 없음"; exit 1; }
-            cd ~/server
-            docker compose pull sion-api
-            docker compose up -d sion-api
-            docker compose ps sion-api
+        # 배포 서버는 GHCR에서 latest 이미지를 직접 polling/watch해 자동으로 갱신한다.
+        # 따라서 CI 측에서는 별도 SSH 배포 단계가 필요 없다.

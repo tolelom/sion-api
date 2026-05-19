@@ -19,7 +19,7 @@ jobs:
       - name: Go 설정
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25.x'
+          go-version: '1.26.x'
 
       - name: 의존성 다운로드
         run: go mod download

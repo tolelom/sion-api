@@ -13,7 +13,40 @@ import (
 
 var db *gorm.DB
 
+// InitDatabase는 SION_USE_IN_MEMORY_DB=true이면 pure-Go sqlite 인메모리 DB로,
+// 그 외에는 기존 MySQL 환경변수 경로로 초기화한다.
+// 인메모리 모드는 dev/E2E 전용이며 프로세스 종료 시 데이터가 사라진다.
+// production에서는 env를 절대 켜지 말 것 — 시작 로그에 큰 경고를 남긴다.
 func InitDatabase() error {
+	if isTruthyEnv("SION_USE_IN_MEMORY_DB") {
+		return initInMemoryDB()
+	}
+	return initMySQL()
+}
+
+func isTruthyEnv(key string) bool {
+	v := os.Getenv(key)
+	switch v {
+	case "1", "true", "TRUE", "True", "yes", "YES":
+		return true
+	}
+	return false
+}
+
+func initInMemoryDB() error {
+	log.Println("[WARN] ⚠ SION_USE_IN_MEMORY_DB=true — 인메모리 SQLite로 시작합니다.")
+	log.Println("[WARN] ⚠ 이 모드는 dev/E2E 전용입니다. 프로세스 종료 시 모든 로그가 사라집니다.")
+
+	gdb, err := NewInMemoryDB()
+	if err != nil {
+		return fmt.Errorf("인메모리 DB 초기화 실패: %w", err)
+	}
+	db = gdb
+	log.Println("[INFO] 인메모리 SQLite 연결 + AGVLog 마이그레이션 완료")
+	return nil
+}
+
+func initMySQL() error {
 	host := os.Getenv("MYSQL_HOST")
 	portStr := os.Getenv("MYSQL_PORT")
 	user := os.Getenv("MYSQL_USER")
@@ -21,7 +54,7 @@ func InitDatabase() error {
 	dbname := os.Getenv("MYSQL_DATABASE")
 
 	if host == "" || user == "" || password == "" || dbname == "" {
-		return fmt.Errorf("MySQL 환경 변수가 모두 설정되지 않았습니다: MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE")
+		return fmt.Errorf("MySQL 환경 변수가 모두 설정되지 않았습니다: MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE (또는 dev/E2E라면 SION_USE_IN_MEMORY_DB=true 설정)")
 	}
 
 	port, err := strconv.Atoi(portStr)

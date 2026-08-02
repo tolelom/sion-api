@@ -5,7 +5,7 @@ LoL 사이온 궁극기를 구현한 AGV 프로젝트의 백엔드 서버.
 
 ## Tech Stack
 
-- **Language**: Go 1.25
+- **Language**: Go 1.26
 - **Framework**: Fiber v2
 - **WebSocket**: gofiber/websocket
 - **AI**: Ollama (llama3.2) — lazy, only invoked on chat/event

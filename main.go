@@ -30,6 +30,25 @@ func envInt(key string, fallback int) int {
 	return n
 }
 
+// registerTestRoutes는 SION_ENABLE_TEST_API가 truthy일 때만 /api/test/* 를 등록한다.
+// 이 라우트들은 인증 없이 가짜 AGV 데이터를 전 웹 클라이언트에 브로드캐스트하고
+// 실제 로그 DB에 기록하며 LLM 호출까지 유발한다. CORS는 브라우저만 막으므로
+// production에서는 라우트 자체를 등록하지 않는다(= 404). 반환값은 등록 여부.
+func registerTestRoutes(api fiber.Router, br *services.Broker, chatH *handlers.ChatHandler) bool {
+	if !services.IsTruthyEnv("SION_ENABLE_TEST_API") {
+		return false
+	}
+
+	log.Println("[WARN] ⚠ SION_ENABLE_TEST_API=true — /api/test/* 라우트가 인증 없이 열립니다.")
+	log.Println("[WARN] ⚠ 이 모드는 dev/E2E 전용입니다. production에는 켜지 말 것.")
+
+	testAPI := api.Group("/test")
+	testAPI.Post("/position", handlers.NewTestPositionHandler(br))
+	testAPI.Post("/status", handlers.NewTestStatusHandler(br))
+	testAPI.Post("/event", handlers.NewTestEventHandler(br, chatH))
+	return true
+}
+
 func main() {
 	if err := godotenv.Load(); err != nil {
 		log.Println("[WARN] .env 파일을 찾을 수 없습니다")
@@ -96,10 +115,7 @@ func main() {
 	simAPI.Post("/stop", handlers.NewSimulatorStopHandler(sim))
 	simAPI.Get("/status", handlers.NewSimulatorStatusHandler(sim))
 
-	testAPI := api.Group("/test")
-	testAPI.Post("/position", handlers.NewTestPositionHandler(br))
-	testAPI.Post("/status", handlers.NewTestStatusHandler(br))
-	testAPI.Post("/event", handlers.NewTestEventHandler(br, chatH))
+	registerTestRoutes(api, br, chatH)
 
 	app.Use("/websocket", func(c *fiber.Ctx) error {
 		if websocket.IsWebSocketUpgrade(c) {

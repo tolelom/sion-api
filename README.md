@@ -63,7 +63,7 @@ CI는 GitHub Actions가 매 push마다 `go test ./...` → Docker 이미지 빌�
 | POST | `/api/simulator/start` | AGV 시뮬레이터 시작 |
 | POST | `/api/simulator/stop` | 정지 |
 | GET  | `/api/simulator/status` | 상태 |
-| POST | `/api/test/{position,status,event}` | 테스트용 직접 주입 |
+| POST | `/api/test/{position,status,event}` | 테스트용 직접 주입 (`SION_ENABLE_TEST_API=true`일 때만 등록, 아니면 404) |
 | WS   | `/websocket/agv` | 로봇 클라이언트 |
 | WS   | `/websocket/web` | 웹 클라이언트 |
 
@@ -84,6 +84,7 @@ CI는 GitHub Actions가 매 push마다 `go test ./...` → Docker 이미지 빌�
 | `ALLOWED_ORIGINS` | `http://localhost:5173` | CORS allowed origins |
 | `MYSQL_*` | — | DB 접속 정보 (in-memory 모드면 무시) |
 | `SION_USE_IN_MEMORY_DB` | false | true이면 pure-Go SQLite 인메모리 |
+| `SION_ENABLE_TEST_API` | false | true이면 `/api/test/*` 등록 (dev/E2E 전용) |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | LLM 엔드포인트 |
 | `OLLAMA_MODEL` | llama3.2 | 모델명 |
 | `LLM_TIMEOUT_SEC` | 60 | LLM 호출 타임아웃 |

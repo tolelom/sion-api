@@ -18,13 +18,15 @@ var db *gorm.DB
 // 인메모리 모드는 dev/E2E 전용이며 프로세스 종료 시 데이터가 사라진다.
 // production에서는 env를 절대 켜지 말 것 — 시작 로그에 큰 경고를 남긴다.
 func InitDatabase() error {
-	if isTruthyEnv("SION_USE_IN_MEMORY_DB") {
+	if IsTruthyEnv("SION_USE_IN_MEMORY_DB") {
 		return initInMemoryDB()
 	}
 	return initMySQL()
 }
 
-func isTruthyEnv(key string) bool {
+// IsTruthyEnv는 opt-in 플래그 환경변수의 해석을 한 곳에 모은다.
+// 미설정·오타·"false"는 모두 false — 켜려면 명시적으로 truthy 값을 줘야 한다.
+func IsTruthyEnv(key string) bool {
 	v := os.Getenv(key)
 	switch v {
 	case "1", "true", "TRUE", "True", "yes", "YES":

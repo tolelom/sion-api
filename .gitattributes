@@ -1,0 +1,9 @@
+# 텍스트 파일은 저장소·작업트리 모두 LF로 통일한다.
+# Windows 작업 + Mac 서버 + 리눅스 컨테이너 배포 조합이라
+# eol=native(기본값)로 두면 Windows 체크아웃만 CRLF가 되어 작업트리가 갈린다.
+* text=auto eol=lf
+
+# 예외: cmd.exe/PowerShell은 CRLF를 기대한다.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf

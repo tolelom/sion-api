@@ -47,7 +47,7 @@ go test -cover ./...               # 커버리지 출력
 go test -v ./services/             # 특정 패키지만
 ```
 
-CI는 GitHub Actions가 매 push마다 `go test ./...` → Docker 이미지 빌드 → GHCR push까지 자동 수행합니다. 배포 서버는 GHCR을 watch해 latest 이미지를 자동 pull.
+CI는 GitHub Actions가 매 push마다 `CGO_ENABLED=0 go test ./...` → Docker 이미지 빌드 → GHCR push까지 자동 수행합니다. 배포 서버는 GHCR을 watch해 latest 이미지를 자동 pull.
 
 ## API 요약
 
@@ -88,7 +88,7 @@ CI는 GitHub Actions가 매 push마다 `go test ./...` → Docker 이미지 빌�
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | LLM 엔드포인트 |
 | `OLLAMA_MODEL` | llama3.2 | 모델명 |
 | `LLM_TIMEOUT_SEC` | 60 | LLM 호출 타임아웃 |
-| `LOG_FLUSH_SIZE` / `LOG_FLUSH_INTERVAL_SEC` / `LOG_MAX_RETRIES` / `LOG_MAX_FAILED` | — | 로그 버퍼 튜닝 |
+| `LOG_FLUSH_SIZE` / `LOG_FLUSH_INTERVAL_SEC` / `LOG_MAX_RETRIES` / `LOG_MAX_FAILED` | 50 / 10 / 3 / 500 | 로그 버퍼 튜닝 |
 
 ## License
 

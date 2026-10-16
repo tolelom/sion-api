@@ -84,12 +84,12 @@ func (pq *priorityQueue) Pop() any {
 }
 
 // FindPath는 8방향 그리드에서 start→goal 최단 경로를 찾아 반환한다.
-// 좌표는 입력 시 int로 캐스팅되어 셀 단위로 처리된다.
+// 좌표는 입력 시 내림해 셀 단위로 처리된다.
 //   - start == goal (같은 셀, 통과 가능): [start] 반환
 //   - 경로 없음 / start·goal이 범위 밖이거나 장애물: nil 반환
 func (g *Grid) FindPath(start, goal Point) []Point {
-	sx, sy := int(start.X), int(start.Y)
-	gx, gy := int(goal.X), int(goal.Y)
+	sx, sy := int(math.Floor(start.X)), int(math.Floor(start.Y))
+	gx, gy := int(math.Floor(goal.X)), int(math.Floor(goal.Y))
 
 	if !g.IsValid(sx, sy) || !g.IsValid(gx, gy) {
 		return nil
@@ -142,6 +142,9 @@ func (g *Grid) FindPath(start, goal Point) []Point {
 
 			step := 1.0
 			if d[0] != 0 && d[1] != 0 {
+				if !g.IsValid(cur.x+d[0], cur.y) || !g.IsValid(cur.x, cur.y+d[1]) {
+					continue
+				}
 				step = math.Sqrt2
 			}
 			tentativeG := cur.g + step

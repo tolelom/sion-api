@@ -7,6 +7,8 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
+const maxMapSize = 200
+
 type PathfindingRequest struct {
 	Start struct {
 		X float64 `json:"x"`
@@ -36,6 +38,13 @@ func HandlePathfinding(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(PathfindingResponse{
 			Success: false,
 			Message: "잘못된 요청 형식입니다",
+		})
+	}
+
+	if req.MapWidth < 1 || req.MapHeight < 1 || req.MapWidth > maxMapSize || req.MapHeight > maxMapSize {
+		return c.Status(fiber.StatusBadRequest).JSON(PathfindingResponse{
+			Success: false,
+			Message: "맵 크기는 1~200 사이여야 합니다",
 		})
 	}
 

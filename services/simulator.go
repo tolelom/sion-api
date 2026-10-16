@@ -22,6 +22,7 @@ type AGVSimulator struct {
 	BroadcastFunc  func(models.WebSocketMessage)
 
 	running  atomic.Bool
+	lifeMu   sync.Mutex
 	stopChan chan struct{}
 	doneChan chan struct{}
 }
@@ -69,27 +70,32 @@ func (sim *AGVSimulator) Snapshot() (status models.AGVStatus, enemies []models.E
 }
 
 func (sim *AGVSimulator) Start() {
-	if !sim.running.CompareAndSwap(false, true) {
-		log.Println("[WARN] 시뮬레이터가 이미 실행 중")
+	sim.lifeMu.Lock()
+	defer sim.lifeMu.Unlock()
+	if sim.running.Load() {
 		return
 	}
 	sim.stopChan = make(chan struct{})
 	sim.doneChan = make(chan struct{})
+	sim.running.Store(true)
 	log.Println("[INFO] AGV 시뮬레이터 시작")
-	go sim.runSimulation()
+	go sim.runSimulation(sim.stopChan, sim.doneChan)
 }
 
 func (sim *AGVSimulator) Stop() {
-	if !sim.running.CompareAndSwap(true, false) {
+	sim.lifeMu.Lock()
+	defer sim.lifeMu.Unlock()
+	if !sim.running.Load() {
 		return
 	}
 	close(sim.stopChan)
 	<-sim.doneChan
+	sim.running.Store(false)
 	log.Println("[INFO] AGV 시뮬레이터 중지")
 }
 
-func (sim *AGVSimulator) runSimulation() {
-	defer close(sim.doneChan)
+func (sim *AGVSimulator) runSimulation(stop <-chan struct{}, done chan<- struct{}) {
+	defer close(done)
 	ticker := time.NewTicker(sim.UpdateInterval)
 	defer ticker.Stop()
 
@@ -97,13 +103,21 @@ func (sim *AGVSimulator) runSimulation() {
 		select {
 		case <-ticker.C:
 			sim.update()
-		case <-sim.stopChan:
+		case <-stop:
 			return
 		}
 	}
 }
 
 func (sim *AGVSimulator) update() {
+	statusMsg, positionMsg := sim.step()
+	if sim.BroadcastFunc != nil {
+		sim.BroadcastFunc(statusMsg)
+		sim.BroadcastFunc(positionMsg)
+	}
+}
+
+func (sim *AGVSimulator) step() (statusMsg, positionMsg models.WebSocketMessage) {
 	sim.mu.Lock()
 	defer sim.mu.Unlock()
 
@@ -135,15 +149,9 @@ func (sim *AGVSimulator) update() {
 	}
 
 	sim.consumeBatteryLocked()
-	statusMsg, positionMsg := sim.buildBroadcastMessagesLocked()
 	statusCopy := *sim.Status
-
-	// DB 로그·브로드캐스트는 잠금 밖에서 수행
 	go LogAGVStatus(statusCopy.ID, &statusCopy)
-	if sim.BroadcastFunc != nil {
-		sim.BroadcastFunc(statusMsg)
-		sim.BroadcastFunc(positionMsg)
-	}
+	return sim.buildBroadcastMessagesLocked()
 }
 
 func (sim *AGVSimulator) detectEnemiesLocked() []models.Enemy {

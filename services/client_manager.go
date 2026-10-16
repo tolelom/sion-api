@@ -24,14 +24,20 @@ type clientEntry struct {
 }
 
 type ClientManager struct {
-	clients map[*websocket.Conn]*clientEntry
-	mutex   sync.RWMutex
+	clients      map[*websocket.Conn]*clientEntry
+	mutex        sync.RWMutex
+	writeTimeout time.Duration
 }
 
 func NewClientManager() *ClientManager {
 	return &ClientManager{
-		clients: make(map[*websocket.Conn]*clientEntry),
+		clients:      make(map[*websocket.Conn]*clientEntry),
+		writeTimeout: 5 * time.Second,
 	}
+}
+
+func (m *ClientManager) SetWriteTimeout(d time.Duration) {
+	m.writeTimeout = d
 }
 
 func (m *ClientManager) Register(conn *websocket.Conn, ct ClientType) {
@@ -69,6 +75,9 @@ func (m *ClientManager) GetClientCount() map[string]int {
 func (m *ClientManager) safeWrite(conn *websocket.Conn, entry *clientEntry, data []byte) error {
 	entry.writeMu.Lock()
 	defer entry.writeMu.Unlock()
+	if err := conn.SetWriteDeadline(time.Now().Add(m.writeTimeout)); err != nil {
+		return err
+	}
 	return conn.WriteMessage(websocket.TextMessage, data)
 }
 

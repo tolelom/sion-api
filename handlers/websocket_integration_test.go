@@ -24,8 +24,12 @@ type wsTestServer struct {
 
 func newWSTestServer(t *testing.T) *wsTestServer {
 	t.Helper()
+	return newWSTestServerWith(t, services.NewClientManager())
+}
 
-	cm := services.NewClientManager()
+func newWSTestServerWith(t *testing.T, cm *services.ClientManager) *wsTestServer {
+	t.Helper()
+
 	br := services.NewBroker(cm)
 
 	app := fiber.New(fiber.Config{DisableStartupMessage: true})

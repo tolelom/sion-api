@@ -10,8 +10,36 @@ import (
 	"github.com/gofiber/websocket/v2"
 )
 
+const (
+	maxMessageBytes = 32 * 1024
+	commandsPerSec  = 5
+	commandBurst    = 10
+)
+
+type commandLimiter struct {
+	tokens float64
+	last   time.Time
+}
+
+func newCommandLimiter() *commandLimiter {
+	return &commandLimiter{tokens: commandBurst, last: time.Now()}
+}
+
+func (l *commandLimiter) allow() bool {
+	now := time.Now()
+	l.tokens = min(commandBurst, l.tokens+now.Sub(l.last).Seconds()*commandsPerSec)
+	l.last = now
+	if l.tokens < 1 {
+		return false
+	}
+	l.tokens--
+	return true
+}
+
 func NewWebHandler(cm *services.ClientManager, sim *services.AGVSimulator) func(*websocket.Conn) {
 	return func(c *websocket.Conn) {
+		c.SetReadLimit(maxMessageBytes)
+		limiter := newCommandLimiter()
 		cm.Register(c)
 		defer cm.Unregister(c)
 		stopKeepalive := installKeepalive(cm, c, "Web")
@@ -28,6 +56,10 @@ func NewWebHandler(cm *services.ClientManager, sim *services.AGVSimulator) func(
 				return
 			}
 
+			if !limiter.allow() {
+				sendError(cm, c, "요청이 너무 많습니다. 잠시 후 다시 시도하세요")
+				continue
+			}
 			var msg models.WebSocketMessage
 			if err := json.Unmarshal(p, &msg); err != nil {
 				sendError(cm, c, "잘못된 메시지 형식")

@@ -38,7 +38,7 @@ func TestBroadcast_StuckClientDoesNotStallOthers(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("broadcasts stalled behind a client that never reads")
 	}
-	if n := cm.GetClientCount()["web"]; n != 1 {
+	if n := cm.Count(); n != 1 {
 		t.Fatalf("the stuck client should be dropped, %d web clients remain", n)
 	}
 }
@@ -46,9 +46,9 @@ func TestBroadcast_StuckClientDoesNotStallOthers(t *testing.T) {
 func waitWebClients(t *testing.T, cm *services.ClientManager, n int) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
-	for cm.GetClientCount()["web"] < n {
+	for cm.Count() < n {
 		if time.Now().After(deadline) {
-			t.Fatalf("only %d web clients registered", cm.GetClientCount()["web"])
+			t.Fatalf("only %d web clients registered", cm.Count())
 		}
 		time.Sleep(10 * time.Millisecond)
 	}

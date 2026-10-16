@@ -21,6 +21,12 @@ jobs:
         with:
           go-version: '1.25.x'
 
+      - name: 정적 분석
+        run: go vet ./...
+
+      - name: 테스트
+        run: go test -race ./...
+
       - name: 바이너리 빌드
         run: GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o server .
 

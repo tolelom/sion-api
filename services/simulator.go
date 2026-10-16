@@ -1,8 +1,9 @@
 package services
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
-	"log"
 	"math"
 	"math/rand"
 	"sion-backend/models"
@@ -11,15 +12,29 @@ import (
 	"time"
 )
 
+const (
+	MapSize           = 20
+	startX            = 2.0
+	startY            = 2.0
+	maxPathPoints     = 400
+	batteryDrainTicks = 5
+	obstacleCount     = 25
+	enemyCount        = 5
+	detectionRange    = 10.0
+	attackRange       = 2.0
+)
+
 type AGVSimulator struct {
-	mu             sync.RWMutex
-	Status         *models.AGVStatus
-	MapWidth       float64
-	MapHeight      float64
-	Enemies        []models.Enemy
-	Obstacles      []models.Obstacle
+	mu        sync.RWMutex
+	Status    *models.AGVStatus
+	Enemies   []models.Enemy
+	Obstacles []models.Cell
+	path      []models.Waypoint
+	tick      int
+
 	UpdateInterval time.Duration
 	BroadcastFunc  func(models.WebSocketMessage)
+	HasListeners   func() bool
 
 	running  atomic.Bool
 	lifeMu   sync.Mutex
@@ -27,46 +42,62 @@ type AGVSimulator struct {
 	doneChan chan struct{}
 }
 
-func NewAGVSimulator(broadcastFunc func(models.WebSocketMessage)) *AGVSimulator {
-	return &AGVSimulator{
-		Status: &models.AGVStatus{
-			ID:   "sion-001",
-			Name: "사이온",
-			Position: models.PositionData{
-				X:     5.0,
-				Y:     5.0,
-				Angle: 0,
-			},
-			Mode:    models.ModeAuto,
-			State:   models.StateIdle,
-			Speed:   0,
-			Battery: 100,
-		},
-		MapWidth:       30.0,
-		MapHeight:      30.0,
-		Enemies:        generateRandomEnemies(5, 30, 30),
-		Obstacles:      generateRandomObstacles(10, 30, 30),
+func NewAGVSimulator(broadcast func(models.WebSocketMessage), hasListeners func() bool) *AGVSimulator {
+	sim := &AGVSimulator{
 		UpdateInterval: 500 * time.Millisecond,
-		BroadcastFunc:  broadcastFunc,
+		BroadcastFunc:  broadcast,
+		HasListeners:   hasListeners,
+	}
+	sim.Obstacles = generateObstacles(obstacleCount)
+	sim.resetLocked()
+	return sim
+}
+
+func initialStatus() *models.AGVStatus {
+	return &models.AGVStatus{
+		ID:       "sion-001",
+		Name:     "사이온",
+		Position: models.PositionData{X: startX, Y: startY},
+		Mode:     models.ModeAuto,
+		State:    models.StateIdle,
+		Battery:  100,
 	}
 }
 
-// IsRunning은 외부 핸들러가 시뮬레이터 상태를 안전하게 읽기 위한 접근자.
+func (sim *AGVSimulator) resetLocked() {
+	sim.Status = initialStatus()
+	sim.Enemies = generateEnemies(enemyCount, sim.Obstacles)
+	sim.path = nil
+	sim.tick = 0
+}
+
 func (sim *AGVSimulator) IsRunning() bool {
 	return sim.running.Load()
 }
 
-// Snapshot은 외부에서 읽을 수 있는 현재 상태 사본을 반환한다.
-// (시뮬레이터 고루틴이 매 틱 Status를 변경하므로 직접 노출하지 않는다.)
 func (sim *AGVSimulator) Snapshot() (status models.AGVStatus, enemies []models.Enemy, mapW, mapH float64) {
 	sim.mu.RLock()
 	defer sim.mu.RUnlock()
-	if sim.Status != nil {
-		status = *sim.Status
-	}
+	status = *sim.Status
 	enemies = make([]models.Enemy, len(sim.Enemies))
 	copy(enemies, sim.Enemies)
-	return status, enemies, sim.MapWidth, sim.MapHeight
+	return status, enemies, MapSize, MapSize
+}
+
+func (sim *AGVSimulator) MapUpdateMessage() models.WebSocketMessage {
+	sim.mu.RLock()
+	obstacles := make([]models.Cell, len(sim.Obstacles))
+	copy(obstacles, sim.Obstacles)
+	sim.mu.RUnlock()
+	return models.WebSocketMessage{
+		Type: models.MessageTypeMapUpdate,
+		Data: map[string]interface{}{
+			"obstacles": obstacles,
+			"width":     MapSize,
+			"height":    MapSize,
+		},
+		Timestamp: time.Now().UnixMilli(),
+	}
 }
 
 func (sim *AGVSimulator) Start() {
@@ -78,7 +109,6 @@ func (sim *AGVSimulator) Start() {
 	sim.stopChan = make(chan struct{})
 	sim.doneChan = make(chan struct{})
 	sim.running.Store(true)
-	log.Println("[INFO] AGV 시뮬레이터 시작")
 	go sim.runSimulation(sim.stopChan, sim.doneChan)
 }
 
@@ -91,14 +121,12 @@ func (sim *AGVSimulator) Stop() {
 	close(sim.stopChan)
 	<-sim.doneChan
 	sim.running.Store(false)
-	log.Println("[INFO] AGV 시뮬레이터 중지")
 }
 
 func (sim *AGVSimulator) runSimulation(stop <-chan struct{}, done chan<- struct{}) {
 	defer close(done)
 	ticker := time.NewTicker(sim.UpdateInterval)
 	defer ticker.Stop()
-
 	for {
 		select {
 		case <-ticker.C:
@@ -110,6 +138,9 @@ func (sim *AGVSimulator) runSimulation(stop <-chan struct{}, done chan<- struct{
 }
 
 func (sim *AGVSimulator) update() {
+	if sim.HasListeners != nil && !sim.HasListeners() {
+		return
+	}
 	statusMsg, positionMsg := sim.step()
 	if sim.BroadcastFunc != nil {
 		sim.BroadcastFunc(statusMsg)
@@ -120,53 +151,145 @@ func (sim *AGVSimulator) update() {
 func (sim *AGVSimulator) step() (statusMsg, positionMsg models.WebSocketMessage) {
 	sim.mu.Lock()
 	defer sim.mu.Unlock()
+	sim.tick++
 
-	detectedEnemies := sim.detectEnemiesLocked()
-	sim.Status.DetectedEnemies = detectedEnemies
-
-	if len(detectedEnemies) > 0 && sim.Status.Mode == models.ModeAuto {
-		lowestHPEnemy := sim.findLowestHPEnemy(detectedEnemies)
-		sim.Status.TargetEnemy = &lowestHPEnemy
-		sim.Status.State = models.StateCharging
-		sim.Status.Speed = 2.5
-		LogTargetFound(sim.Status.ID, &lowestHPEnemy)
-	} else {
-		sim.Status.TargetEnemy = nil
-		sim.Status.State = models.StateSearching
-		sim.Status.Speed = 1.0
-	}
-
-	if sim.Status.Mode == models.ModeAuto {
-		if sim.Status.TargetEnemy != nil {
-			sim.moveTowardsLocked(sim.Status.TargetEnemy.Position.X, sim.Status.TargetEnemy.Position.Y)
-			dist := sim.distanceToLocked(sim.Status.TargetEnemy.Position.X, sim.Status.TargetEnemy.Position.Y)
-			if dist < 2.0 {
-				sim.attackTargetLocked()
-			}
-		} else {
-			sim.randomWalkLocked()
-		}
+	switch {
+	case sim.Status.State == models.StateEmergency, sim.Status.Battery == 0:
+		sim.Status.Speed = 0
+	case sim.Status.Mode == models.ModeManual:
+		sim.followPathLocked()
+	default:
+		sim.huntLocked()
 	}
 
 	sim.consumeBatteryLocked()
-	statusCopy := *sim.Status
-	go LogAGVStatus(statusCopy.ID, &statusCopy)
 	return sim.buildBroadcastMessagesLocked()
 }
 
+func (sim *AGVSimulator) followPathLocked() {
+	sim.Status.TargetEnemy = nil
+	sim.Status.DetectedEnemies = nil
+	if len(sim.path) == 0 {
+		sim.Status.Speed = 0
+		sim.Status.State = models.StateIdle
+		return
+	}
+	sim.Status.Speed = 1.0
+	sim.Status.State = models.StateMoving
+	next := sim.path[0]
+	if sim.moveTowardsLocked(next.X, next.Y) {
+		sim.path = sim.path[1:]
+	}
+}
+
+func (sim *AGVSimulator) huntLocked() {
+	detected := sim.detectEnemiesLocked()
+	sim.Status.DetectedEnemies = detected
+	if len(detected) == 0 {
+		sim.Status.TargetEnemy = nil
+		sim.Status.State = models.StateSearching
+		sim.Status.Speed = 1.0
+		sim.randomWalkLocked()
+		return
+	}
+	target := lowestHP(detected)
+	sim.Status.TargetEnemy = &target
+	sim.Status.State = models.StateCharging
+	sim.Status.Speed = 2.5
+	sim.moveTowardsLocked(target.Position.X, target.Position.Y)
+	if sim.distanceToLocked(target.Position.X, target.Position.Y) < attackRange {
+		sim.attackTargetLocked()
+	}
+}
+
+func (sim *AGVSimulator) HandleCommand(msg models.WebSocketMessage) error {
+	switch msg.Type {
+	case models.MessageTypeEmergencyStop:
+		sim.mu.Lock()
+		sim.Status.State = models.StateEmergency
+		sim.Status.Speed = 0
+		sim.path = nil
+		sim.mu.Unlock()
+		return nil
+	case models.MessageTypeModeChange:
+		var cmd struct {
+			Mode string `json:"mode"`
+		}
+		if err := decodeData(msg.Data, &cmd); err != nil {
+			return err
+		}
+		if cmd.Mode != models.ModeAuto && cmd.Mode != models.ModeManual {
+			return fmt.Errorf("알 수 없는 모드: %q", cmd.Mode)
+		}
+		sim.mu.Lock()
+		sim.Status.Mode = cmd.Mode
+		sim.path = nil
+		sim.mu.Unlock()
+		return nil
+	case models.MessageTypeCommand:
+		return sim.handleMoveCommand(msg.Data)
+	default:
+		return fmt.Errorf("지원하지 않는 메시지 타입: %q", msg.Type)
+	}
+}
+
+func (sim *AGVSimulator) handleMoveCommand(data any) error {
+	var cmd struct {
+		Action string            `json:"action"`
+		Path   []models.Waypoint `json:"path"`
+	}
+	if err := decodeData(data, &cmd); err != nil {
+		return err
+	}
+	if cmd.Action == "reset" {
+		sim.mu.Lock()
+		sim.resetLocked()
+		sim.mu.Unlock()
+		return nil
+	}
+	if len(cmd.Path) == 0 {
+		return errors.New("경로가 비어 있습니다")
+	}
+	if len(cmd.Path) > maxPathPoints {
+		return fmt.Errorf("경로는 최대 %d개 지점까지입니다", maxPathPoints)
+	}
+	for _, p := range cmd.Path {
+		if p.X < 0 || p.Y < 0 || p.X > MapSize || p.Y > MapSize {
+			return errors.New("경로가 맵을 벗어납니다")
+		}
+	}
+	sim.mu.Lock()
+	defer sim.mu.Unlock()
+	if sim.Status.State == models.StateEmergency || sim.Status.Battery == 0 {
+		return errors.New("정지 상태입니다. 초기화 후 다시 시도하세요")
+	}
+	sim.Status.Mode = models.ModeManual
+	sim.path = cmd.Path
+	return nil
+}
+
+func decodeData(data any, dst any) error {
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return errors.New("잘못된 명령 형식")
+	}
+	if err := json.Unmarshal(raw, dst); err != nil {
+		return errors.New("잘못된 명령 형식")
+	}
+	return nil
+}
+
 func (sim *AGVSimulator) detectEnemiesLocked() []models.Enemy {
-	const detectionRange = 10.0
 	var detected []models.Enemy
 	for _, enemy := range sim.Enemies {
-		dist := sim.distanceToLocked(enemy.Position.X, enemy.Position.Y)
-		if dist <= detectionRange && enemy.HP > 0 {
+		if enemy.HP > 0 && sim.distanceToLocked(enemy.Position.X, enemy.Position.Y) <= detectionRange {
 			detected = append(detected, enemy)
 		}
 	}
 	return detected
 }
 
-func (sim *AGVSimulator) findLowestHPEnemy(enemies []models.Enemy) models.Enemy {
+func lowestHP(enemies []models.Enemy) models.Enemy {
 	lowest := enemies[0]
 	for _, enemy := range enemies {
 		if enemy.HP < lowest.HP {
@@ -176,50 +299,58 @@ func (sim *AGVSimulator) findLowestHPEnemy(enemies []models.Enemy) models.Enemy 
 	return lowest
 }
 
-func (sim *AGVSimulator) moveTowardsLocked(targetX, targetY float64) {
+func (sim *AGVSimulator) moveTowardsLocked(targetX, targetY float64) bool {
 	dx := targetX - sim.Status.Position.X
 	dy := targetY - sim.Status.Position.Y
-	dist := math.Sqrt(dx*dx + dy*dy)
-	if dist > 0.1 {
-		dx /= dist
-		dy /= dist
-		moveSpeed := sim.Status.Speed * 0.5
-		sim.Status.Position.X += dx * moveSpeed
-		sim.Status.Position.Y += dy * moveSpeed
-		sim.Status.Position.Angle = math.Atan2(dy, dx)
+	dist := math.Hypot(dx, dy)
+	stepLen := sim.Status.Speed * 0.5
+	if dist <= stepLen {
+		sim.Status.Position.X, sim.Status.Position.Y = targetX, targetY
 		sim.clampPositionLocked()
+		return true
 	}
+	sim.Status.Position.X += dx / dist * stepLen
+	sim.Status.Position.Y += dy / dist * stepLen
+	sim.Status.Position.Angle = math.Atan2(dy, dx)
+	sim.clampPositionLocked()
+	return false
 }
 
 func (sim *AGVSimulator) randomWalkLocked() {
 	if rand.Float64() < 0.1 {
 		sim.Status.Position.Angle = rand.Float64() * 2 * math.Pi
 	}
-	moveSpeed := sim.Status.Speed * 0.5
-	sim.Status.Position.X += math.Cos(sim.Status.Position.Angle) * moveSpeed
-	sim.Status.Position.Y += math.Sin(sim.Status.Position.Angle) * moveSpeed
-	sim.clampPositionLocked()
+	stepLen := sim.Status.Speed * 0.5
+	nx := sim.Status.Position.X + math.Cos(sim.Status.Position.Angle)*stepLen
+	ny := sim.Status.Position.Y + math.Sin(sim.Status.Position.Angle)*stepLen
+	if nx < 0 || ny < 0 || nx > MapSize || ny > MapSize || sim.isObstacleLocked(nx, ny) {
+		sim.Status.Position.Angle = rand.Float64() * 2 * math.Pi
+		return
+	}
+	sim.Status.Position.X, sim.Status.Position.Y = nx, ny
+}
+
+func (sim *AGVSimulator) isObstacleLocked(x, y float64) bool {
+	cx, cy := int(math.Floor(x)), int(math.Floor(y))
+	for _, o := range sim.Obstacles {
+		if o.X == cx && o.Y == cy {
+			return true
+		}
+	}
+	return false
 }
 
 func (sim *AGVSimulator) attackTargetLocked() {
-	if sim.Status.TargetEnemy == nil {
-		return
-	}
-	if rand.Float64() >= 0.2 {
+	if sim.Status.TargetEnemy == nil || rand.Float64() >= 0.2 {
 		return
 	}
 	for i := range sim.Enemies {
 		if sim.Enemies[i].ID != sim.Status.TargetEnemy.ID {
 			continue
 		}
-		sim.Enemies[i].HP -= 10
-		if sim.Enemies[i].HP < 0 {
-			sim.Enemies[i].HP = 0
-		}
+		sim.Enemies[i].HP = max(sim.Enemies[i].HP-10, 0)
 		sim.Status.TargetEnemy.HP = sim.Enemies[i].HP
-		log.Printf("[INFO] 타겟 공격: %s HP: %d", sim.Enemies[i].Name, sim.Enemies[i].HP)
 		if sim.Enemies[i].HP == 0 {
-			log.Printf("[INFO] 타겟 제거: %s", sim.Enemies[i].Name)
 			sim.Status.TargetEnemy = nil
 		}
 		return
@@ -227,64 +358,44 @@ func (sim *AGVSimulator) attackTargetLocked() {
 }
 
 func (sim *AGVSimulator) consumeBatteryLocked() {
-	if sim.Status.Speed > 0 {
-		sim.Status.Battery -= 1
-		if sim.Status.Battery < 0 {
-			sim.Status.Battery = 0
-			sim.Status.State = models.StateStopped
-			sim.Status.Speed = 0
-			log.Println("[WARN] 배터리 방전, AGV 정지")
-		}
+	if sim.Status.Speed > 0 && sim.tick%batteryDrainTicks == 0 {
+		sim.Status.Battery--
 	}
-	if sim.Status.Battery <= 20 && sim.Status.Battery > 0 {
-		if rand.Float64() < 0.05 {
-			log.Printf("[WARN] 배터리 부족: %d%%", sim.Status.Battery)
-		}
+	if sim.Status.Battery <= 0 {
+		sim.Status.Battery = 0
+		sim.Status.State = models.StateStopped
+		sim.Status.Speed = 0
+		sim.path = nil
 	}
 }
 
 func (sim *AGVSimulator) clampPositionLocked() {
-	if sim.Status.Position.X < 0 {
-		sim.Status.Position.X = 0
-	}
-	if sim.Status.Position.X > sim.MapWidth {
-		sim.Status.Position.X = sim.MapWidth
-	}
-	if sim.Status.Position.Y < 0 {
-		sim.Status.Position.Y = 0
-	}
-	if sim.Status.Position.Y > sim.MapHeight {
-		sim.Status.Position.Y = sim.MapHeight
-	}
+	sim.Status.Position.X = math.Min(math.Max(sim.Status.Position.X, 0), MapSize)
+	sim.Status.Position.Y = math.Min(math.Max(sim.Status.Position.Y, 0), MapSize)
 }
 
 func (sim *AGVSimulator) distanceToLocked(x, y float64) float64 {
-	dx := x - sim.Status.Position.X
-	dy := y - sim.Status.Position.Y
-	return math.Sqrt(dx*dx + dy*dy)
+	return math.Hypot(x-sim.Status.Position.X, y-sim.Status.Position.Y)
+}
+
+func flatEnemy(e models.Enemy) map[string]interface{} {
+	return map[string]interface{}{
+		"id":   e.ID,
+		"name": e.Name,
+		"hp":   e.HP,
+		"x":    e.Position.X,
+		"y":    e.Position.Y,
+	}
 }
 
 func (sim *AGVSimulator) buildBroadcastMessagesLocked() (statusMsg, positionMsg models.WebSocketMessage) {
 	flatEnemies := make([]map[string]interface{}, len(sim.Status.DetectedEnemies))
 	for i, enemy := range sim.Status.DetectedEnemies {
-		flatEnemies[i] = map[string]interface{}{
-			"id":   enemy.ID,
-			"name": enemy.Name,
-			"hp":   enemy.HP,
-			"x":    enemy.Position.X,
-			"y":    enemy.Position.Y,
-		}
+		flatEnemies[i] = flatEnemy(enemy)
 	}
-
 	var flatTarget map[string]interface{}
 	if sim.Status.TargetEnemy != nil {
-		flatTarget = map[string]interface{}{
-			"id":   sim.Status.TargetEnemy.ID,
-			"name": sim.Status.TargetEnemy.Name,
-			"hp":   sim.Status.TargetEnemy.HP,
-			"x":    sim.Status.TargetEnemy.Position.X,
-			"y":    sim.Status.TargetEnemy.Position.Y,
-		}
+		flatTarget = flatEnemy(*sim.Status.TargetEnemy)
 	}
 
 	now := time.Now()
@@ -313,36 +424,43 @@ func (sim *AGVSimulator) buildBroadcastMessagesLocked() (statusMsg, positionMsg 
 	return statusMsg, positionMsg
 }
 
-func generateRandomEnemies(count int, mapWidth, mapHeight float64) []models.Enemy {
-	enemyNames := []string{"아리", "야스오", "지글스", "룩스", "제드"}
-	enemies := make([]models.Enemy, count)
-
-	for i := 0; i < count; i++ {
-		enemies[i] = models.Enemy{
-			ID:   fmt.Sprintf("enemy-%d", i+1),
-			Name: enemyNames[rand.Intn(len(enemyNames))],
-			HP:   rand.Intn(81) + 20,
-			Position: models.PositionData{
-				X: rand.Float64() * mapWidth,
-				Y: rand.Float64() * mapHeight,
-			},
+func generateObstacles(count int) []models.Cell {
+	taken := map[models.Cell]bool{}
+	for dx := -1; dx <= 1; dx++ {
+		for dy := -1; dy <= 1; dy++ {
+			taken[models.Cell{X: int(startX) + dx, Y: int(startY) + dy}] = true
 		}
 	}
-	return enemies
-}
-
-func generateRandomObstacles(count int, mapWidth, mapHeight float64) []models.Obstacle {
-	obstacles := make([]models.Obstacle, count)
-	for i := 0; i < count; i++ {
-		obstacles[i] = models.Obstacle{
-			ID:   fmt.Sprintf("obstacle-%d", i+1),
-			Type: "static",
-			Position: models.GridCoordinate{
-				Row: rand.Intn(int(mapHeight)),
-				Col: rand.Intn(int(mapWidth)),
-			},
-			Size: 1,
+	obstacles := make([]models.Cell, 0, count)
+	for len(obstacles) < count {
+		c := models.Cell{X: rand.Intn(MapSize), Y: rand.Intn(MapSize)}
+		if taken[c] {
+			continue
 		}
+		taken[c] = true
+		obstacles = append(obstacles, c)
 	}
 	return obstacles
+}
+
+func generateEnemies(count int, obstacles []models.Cell) []models.Enemy {
+	names := []string{"아리", "야스오", "지글스", "룩스", "제드"}
+	blocked := map[models.Cell]bool{}
+	for _, o := range obstacles {
+		blocked[o] = true
+	}
+	enemies := make([]models.Enemy, 0, count)
+	for len(enemies) < count {
+		x, y := rand.Float64()*MapSize, rand.Float64()*MapSize
+		if blocked[models.Cell{X: int(x), Y: int(y)}] {
+			continue
+		}
+		enemies = append(enemies, models.Enemy{
+			ID:       fmt.Sprintf("enemy-%d", len(enemies)+1),
+			Name:     names[rand.Intn(len(names))],
+			HP:       rand.Intn(81) + 20,
+			Position: models.PositionData{X: x, Y: y},
+		})
+	}
+	return enemies
 }

@@ -10,83 +10,55 @@ import (
 	"github.com/gofiber/websocket/v2"
 )
 
-func NewWebHandler(cm *services.ClientManager, broker *services.Broker, llm *services.LLMService) func(*websocket.Conn) {
+func NewWebHandler(cm *services.ClientManager, sim *services.AGVSimulator) func(*websocket.Conn) {
 	return func(c *websocket.Conn) {
-		cm.Register(c, services.WebClient)
+		cm.Register(c)
 		defer cm.Unregister(c)
 		stopKeepalive := installKeepalive(cm, c, "Web")
 		defer stopKeepalive()
 
-		welcomeData := map[string]interface{}{
-			"message":       "웹 클라이언트 연결됨",
-			"connected_at":  time.Now().Format(time.RFC3339),
-			"agv_connected": broker.IsAGVConnected(),
-		}
-		if agvStatus := broker.GetAGVStatus(); agvStatus != nil {
-			welcomeData["agv_status"] = agvStatus
-		}
-		welcomeMsg := models.WebSocketMessage{
-			Type:      models.MessageTypeSystemInfo,
-			Data:      welcomeData,
-			Timestamp: time.Now().UnixMilli(),
-		}
-		if err := cm.WriteJSON(c, welcomeMsg); err != nil {
-			log.Printf("[WARN] welcome 메시지 전송 실패: %v", err)
-		}
+		sendWelcome(cm, c, sim)
 
 		for {
 			_, p, err := c.ReadMessage()
 			if err != nil {
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
 					log.Printf("[WARN] 웹 비정상 종료: %v", err)
-				} else {
-					log.Println("[INFO] 웹 연결 종료")
 				}
-				break
+				return
 			}
 
 			var msg models.WebSocketMessage
 			if err := json.Unmarshal(p, &msg); err != nil {
-				log.Printf("[WARN] 웹 메시지 파싱 오류: %v", err)
-				sendInvalidPayloadError(cm, c, "잘못된 메시지 형식")
+				sendError(cm, c, "잘못된 메시지 형식")
 				continue
 			}
-
-			if msg.Timestamp == 0 {
-				msg.Timestamp = time.Now().UnixMilli()
-			}
-			go services.LogAGVEvent(msg, "sion-001", "web-user")
-			log.Printf("[INFO] 웹 메시지: %s", msg.Type)
-
-			switch msg.Type {
-			case models.MessageTypeChat:
-				var chatData models.ChatMessageData
-				raw, err := json.Marshal(msg.Data)
-				if err != nil {
-					log.Printf("[WARN] chat marshal 실패: %v", err)
-					sendInvalidPayloadError(cm, c, "잘못된 chat 페이로드")
-					break
-				}
-				if err := json.Unmarshal(raw, &chatData); err != nil {
-					log.Printf("[WARN] chat 파싱 실패: %v", err)
-					sendInvalidPayloadError(cm, c, "잘못된 chat 페이로드")
-					break
-				}
-				if chatData.Message != "" {
-					go handleChatViaWebSocket(chatData.Message, broker, llm)
-				}
-			case models.MessageTypeCommand,
-				models.MessageTypeModeChange,
-				models.MessageTypeEmergencyStop:
-				broker.OnWebMessage(msg)
-			default:
-				log.Printf("[WARN] 알 수 없는 메시지 타입: %s", msg.Type)
+			if err := sim.HandleCommand(msg); err != nil {
+				sendError(cm, c, err.Error())
 			}
 		}
 	}
 }
 
-func sendInvalidPayloadError(cm *services.ClientManager, c *websocket.Conn, reason string) {
+func sendWelcome(cm *services.ClientManager, c *websocket.Conn, sim *services.AGVSimulator) {
+	now := time.Now()
+	welcome := models.WebSocketMessage{
+		Type: models.MessageTypeSystemInfo,
+		Data: map[string]interface{}{
+			"agv_connected": true,
+			"server_time":   now.Format(time.RFC3339),
+		},
+		Timestamp: now.UnixMilli(),
+	}
+	for _, msg := range []models.WebSocketMessage{welcome, sim.MapUpdateMessage()} {
+		if err := cm.WriteJSON(c, msg); err != nil {
+			log.Printf("[WARN] 초기 메시지 전송 실패: %v", err)
+			return
+		}
+	}
+}
+
+func sendError(cm *services.ClientManager, c *websocket.Conn, reason string) {
 	errMsg := models.WebSocketMessage{
 		Type:      models.MessageTypeError,
 		Data:      map[string]interface{}{"message": reason},
@@ -95,26 +67,4 @@ func sendInvalidPayloadError(cm *services.ClientManager, c *websocket.Conn, reas
 	if err := cm.WriteJSON(c, errMsg); err != nil {
 		log.Printf("[WARN] 에러 메시지 전송 실패: %v", err)
 	}
-}
-
-func handleChatViaWebSocket(message string, broker *services.Broker, llm *services.LLMService) {
-	if llm == nil {
-		log.Println("[WARN] LLM 서비스 미초기화")
-		return
-	}
-	status := broker.GetAGVStatus()
-	response, err := llm.AnswerQuestion(message, status)
-	if err != nil {
-		log.Printf("[ERROR] LLM 응답 실패: %v", err)
-		return
-	}
-	broker.BroadcastToWeb(models.WebSocketMessage{
-		Type: models.MessageTypeChatResponse,
-		Data: models.ChatResponseData{
-			Message:   response,
-			Model:     llm.Model,
-			Timestamp: time.Now().UnixMilli(),
-		},
-		Timestamp: time.Now().UnixMilli(),
-	})
 }

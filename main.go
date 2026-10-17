@@ -21,13 +21,24 @@ func main() {
 	sim := services.NewAGVSimulator(func(msg models.WebSocketMessage) { cm.BroadcastJSON(msg) }, func() bool { return cm.Count() > 0 })
 	sim.Start()
 
-	app := fiber.New(fiber.Config{BodyLimit: 64 * 1024})
-	app.Use(recover.New())
-	app.Use(logger.New())
 	allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
 	if allowedOrigins == "" {
 		allowedOrigins = "http://localhost:5173"
 	}
+	app := newApp(cm, sim, allowedOrigins)
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8001"
+	}
+	log.Printf("[INFO] 서버 시작: http://localhost:%s", port)
+	log.Fatal(app.Listen(":" + port))
+}
+
+func newApp(cm *services.ClientManager, sim *services.AGVSimulator, allowedOrigins string) *fiber.App {
+	app := fiber.New(fiber.Config{BodyLimit: 64 * 1024})
+	app.Use(recover.New())
+	app.Use(logger.New())
 	app.Use(cors.New(cors.Config{
 		AllowOrigins: allowedOrigins,
 		AllowHeaders: "Origin, Content-Type, Accept",
@@ -57,13 +68,7 @@ func main() {
 	app.Get("/websocket/web", websocket.New(handlers.NewWebHandler(cm, sim), websocket.Config{
 		Origins: originList(allowedOrigins),
 	}))
-
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8001"
-	}
-	log.Printf("[INFO] 서버 시작: http://localhost:%s", port)
-	log.Fatal(app.Listen(":" + port))
+	return app
 }
 
 func originList(origins string) []string {

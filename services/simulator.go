@@ -26,15 +26,15 @@ const (
 
 type AGVSimulator struct {
 	mu        sync.RWMutex
-	Status    *models.AGVStatus
-	Enemies   []models.Enemy
-	Obstacles []models.Cell
+	status    *models.AGVStatus
+	enemies   []models.Enemy
+	obstacles []models.Cell
 	path      []models.Waypoint
 	tick      int
 
-	UpdateInterval time.Duration
-	BroadcastFunc  func(models.WebSocketMessage)
-	HasListeners   func() bool
+	updateInterval time.Duration
+	broadcastFunc  func(models.WebSocketMessage)
+	hasListeners   func() bool
 
 	running  atomic.Bool
 	lifeMu   sync.Mutex
@@ -44,11 +44,11 @@ type AGVSimulator struct {
 
 func NewAGVSimulator(broadcast func(models.WebSocketMessage), hasListeners func() bool) *AGVSimulator {
 	sim := &AGVSimulator{
-		UpdateInterval: 500 * time.Millisecond,
-		BroadcastFunc:  broadcast,
-		HasListeners:   hasListeners,
+		updateInterval: 500 * time.Millisecond,
+		broadcastFunc:  broadcast,
+		hasListeners:   hasListeners,
 	}
-	sim.Obstacles = generateObstacles(obstacleCount)
+	sim.obstacles = generateObstacles(obstacleCount)
 	sim.resetLocked()
 	return sim
 }
@@ -65,8 +65,8 @@ func initialStatus() *models.AGVStatus {
 }
 
 func (sim *AGVSimulator) resetLocked() {
-	sim.Status = initialStatus()
-	sim.Enemies = generateEnemies(enemyCount, sim.Obstacles)
+	sim.status = initialStatus()
+	sim.enemies = generateEnemies(enemyCount, sim.obstacles)
 	sim.path = nil
 	sim.tick = 0
 }
@@ -78,16 +78,16 @@ func (sim *AGVSimulator) IsRunning() bool {
 func (sim *AGVSimulator) Snapshot() (status models.AGVStatus, enemies []models.Enemy, mapW, mapH float64) {
 	sim.mu.RLock()
 	defer sim.mu.RUnlock()
-	status = *sim.Status
-	enemies = make([]models.Enemy, len(sim.Enemies))
-	copy(enemies, sim.Enemies)
+	status = *sim.status
+	enemies = make([]models.Enemy, len(sim.enemies))
+	copy(enemies, sim.enemies)
 	return status, enemies, MapSize, MapSize
 }
 
 func (sim *AGVSimulator) MapUpdateMessage() models.WebSocketMessage {
 	sim.mu.RLock()
-	obstacles := make([]models.Cell, len(sim.Obstacles))
-	copy(obstacles, sim.Obstacles)
+	obstacles := make([]models.Cell, len(sim.obstacles))
+	copy(obstacles, sim.obstacles)
 	sim.mu.RUnlock()
 	return models.WebSocketMessage{
 		Type: models.MessageTypeMapUpdate,
@@ -125,7 +125,7 @@ func (sim *AGVSimulator) Stop() {
 
 func (sim *AGVSimulator) runSimulation(stop <-chan struct{}, done chan<- struct{}) {
 	defer close(done)
-	ticker := time.NewTicker(sim.UpdateInterval)
+	ticker := time.NewTicker(sim.updateInterval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -138,13 +138,13 @@ func (sim *AGVSimulator) runSimulation(stop <-chan struct{}, done chan<- struct{
 }
 
 func (sim *AGVSimulator) update() {
-	if sim.HasListeners != nil && !sim.HasListeners() {
+	if sim.hasListeners != nil && !sim.hasListeners() {
 		return
 	}
 	statusMsg, positionMsg := sim.step()
-	if sim.BroadcastFunc != nil {
-		sim.BroadcastFunc(statusMsg)
-		sim.BroadcastFunc(positionMsg)
+	if sim.broadcastFunc != nil {
+		sim.broadcastFunc(statusMsg)
+		sim.broadcastFunc(positionMsg)
 	}
 }
 
@@ -154,9 +154,9 @@ func (sim *AGVSimulator) step() (statusMsg, positionMsg models.WebSocketMessage)
 	sim.tick++
 
 	switch {
-	case sim.Status.State == models.StateEmergency, sim.Status.Battery == 0:
-		sim.Status.Speed = 0
-	case sim.Status.Mode == models.ModeManual:
+	case sim.status.State == models.StateEmergency, sim.status.Battery == 0:
+		sim.status.Speed = 0
+	case sim.status.Mode == models.ModeManual:
 		sim.followPathLocked()
 	default:
 		sim.huntLocked()
@@ -167,15 +167,15 @@ func (sim *AGVSimulator) step() (statusMsg, positionMsg models.WebSocketMessage)
 }
 
 func (sim *AGVSimulator) followPathLocked() {
-	sim.Status.TargetEnemy = nil
-	sim.Status.DetectedEnemies = nil
+	sim.status.TargetEnemy = nil
+	sim.status.DetectedEnemies = nil
 	if len(sim.path) == 0 {
-		sim.Status.Speed = 0
-		sim.Status.State = models.StateIdle
+		sim.status.Speed = 0
+		sim.status.State = models.StateIdle
 		return
 	}
-	sim.Status.Speed = 1.0
-	sim.Status.State = models.StateMoving
+	sim.status.Speed = 1.0
+	sim.status.State = models.StateMoving
 	next := sim.path[0]
 	if sim.moveTowardsLocked(next.X, next.Y) {
 		sim.path = sim.path[1:]
@@ -184,18 +184,18 @@ func (sim *AGVSimulator) followPathLocked() {
 
 func (sim *AGVSimulator) huntLocked() {
 	detected := sim.detectEnemiesLocked()
-	sim.Status.DetectedEnemies = detected
+	sim.status.DetectedEnemies = detected
 	if len(detected) == 0 {
-		sim.Status.TargetEnemy = nil
-		sim.Status.State = models.StateSearching
-		sim.Status.Speed = 1.0
+		sim.status.TargetEnemy = nil
+		sim.status.State = models.StateSearching
+		sim.status.Speed = 1.0
 		sim.randomWalkLocked()
 		return
 	}
 	target := lowestHP(detected)
-	sim.Status.TargetEnemy = &target
-	sim.Status.State = models.StateCharging
-	sim.Status.Speed = 2.5
+	sim.status.TargetEnemy = &target
+	sim.status.State = models.StateCharging
+	sim.status.Speed = 2.5
 	sim.moveTowardsLocked(target.Position.X, target.Position.Y)
 	if sim.distanceToLocked(target.Position.X, target.Position.Y) < attackRange {
 		sim.attackTargetLocked()
@@ -206,8 +206,8 @@ func (sim *AGVSimulator) HandleCommand(msg models.WebSocketMessage) error {
 	switch msg.Type {
 	case models.MessageTypeEmergencyStop:
 		sim.mu.Lock()
-		sim.Status.State = models.StateEmergency
-		sim.Status.Speed = 0
+		sim.status.State = models.StateEmergency
+		sim.status.Speed = 0
 		sim.path = nil
 		sim.mu.Unlock()
 		return nil
@@ -222,7 +222,7 @@ func (sim *AGVSimulator) HandleCommand(msg models.WebSocketMessage) error {
 			return fmt.Errorf("알 수 없는 모드: %q", cmd.Mode)
 		}
 		sim.mu.Lock()
-		sim.Status.Mode = cmd.Mode
+		sim.status.Mode = cmd.Mode
 		sim.path = nil
 		sim.mu.Unlock()
 		return nil
@@ -260,10 +260,10 @@ func (sim *AGVSimulator) handleMoveCommand(data any) error {
 	}
 	sim.mu.Lock()
 	defer sim.mu.Unlock()
-	if sim.Status.State == models.StateEmergency || sim.Status.Battery == 0 {
+	if sim.status.State == models.StateEmergency || sim.status.Battery == 0 {
 		return errors.New("정지 상태입니다. 초기화 후 다시 시도하세요")
 	}
-	sim.Status.Mode = models.ModeManual
+	sim.status.Mode = models.ModeManual
 	sim.path = cmd.Path
 	return nil
 }
@@ -281,7 +281,7 @@ func decodeData(data any, dst any) error {
 
 func (sim *AGVSimulator) detectEnemiesLocked() []models.Enemy {
 	var detected []models.Enemy
-	for _, enemy := range sim.Enemies {
+	for _, enemy := range sim.enemies {
 		if enemy.HP > 0 && sim.distanceToLocked(enemy.Position.X, enemy.Position.Y) <= detectionRange {
 			detected = append(detected, enemy)
 		}
@@ -300,39 +300,39 @@ func lowestHP(enemies []models.Enemy) models.Enemy {
 }
 
 func (sim *AGVSimulator) moveTowardsLocked(targetX, targetY float64) bool {
-	dx := targetX - sim.Status.Position.X
-	dy := targetY - sim.Status.Position.Y
+	dx := targetX - sim.status.Position.X
+	dy := targetY - sim.status.Position.Y
 	dist := math.Hypot(dx, dy)
-	stepLen := sim.Status.Speed * 0.5
+	stepLen := sim.status.Speed * 0.5
 	if dist <= stepLen {
-		sim.Status.Position.X, sim.Status.Position.Y = targetX, targetY
+		sim.status.Position.X, sim.status.Position.Y = targetX, targetY
 		sim.clampPositionLocked()
 		return true
 	}
-	sim.Status.Position.X += dx / dist * stepLen
-	sim.Status.Position.Y += dy / dist * stepLen
-	sim.Status.Position.Angle = math.Atan2(dy, dx)
+	sim.status.Position.X += dx / dist * stepLen
+	sim.status.Position.Y += dy / dist * stepLen
+	sim.status.Position.Angle = math.Atan2(dy, dx)
 	sim.clampPositionLocked()
 	return false
 }
 
 func (sim *AGVSimulator) randomWalkLocked() {
 	if rand.Float64() < 0.1 {
-		sim.Status.Position.Angle = rand.Float64() * 2 * math.Pi
+		sim.status.Position.Angle = rand.Float64() * 2 * math.Pi
 	}
-	stepLen := sim.Status.Speed * 0.5
-	nx := sim.Status.Position.X + math.Cos(sim.Status.Position.Angle)*stepLen
-	ny := sim.Status.Position.Y + math.Sin(sim.Status.Position.Angle)*stepLen
+	stepLen := sim.status.Speed * 0.5
+	nx := sim.status.Position.X + math.Cos(sim.status.Position.Angle)*stepLen
+	ny := sim.status.Position.Y + math.Sin(sim.status.Position.Angle)*stepLen
 	if nx < 0 || ny < 0 || nx > MapSize || ny > MapSize || sim.isObstacleLocked(nx, ny) {
-		sim.Status.Position.Angle = rand.Float64() * 2 * math.Pi
+		sim.status.Position.Angle = rand.Float64() * 2 * math.Pi
 		return
 	}
-	sim.Status.Position.X, sim.Status.Position.Y = nx, ny
+	sim.status.Position.X, sim.status.Position.Y = nx, ny
 }
 
 func (sim *AGVSimulator) isObstacleLocked(x, y float64) bool {
 	cx, cy := int(math.Floor(x)), int(math.Floor(y))
-	for _, o := range sim.Obstacles {
+	for _, o := range sim.obstacles {
 		if o.X == cx && o.Y == cy {
 			return true
 		}
@@ -341,41 +341,41 @@ func (sim *AGVSimulator) isObstacleLocked(x, y float64) bool {
 }
 
 func (sim *AGVSimulator) attackTargetLocked() {
-	if sim.Status.TargetEnemy == nil || rand.Float64() >= 0.2 {
+	if sim.status.TargetEnemy == nil || rand.Float64() >= 0.2 {
 		return
 	}
-	for i := range sim.Enemies {
-		if sim.Enemies[i].ID != sim.Status.TargetEnemy.ID {
+	for i := range sim.enemies {
+		if sim.enemies[i].ID != sim.status.TargetEnemy.ID {
 			continue
 		}
-		sim.Enemies[i].HP = max(sim.Enemies[i].HP-10, 0)
-		sim.Status.TargetEnemy.HP = sim.Enemies[i].HP
-		if sim.Enemies[i].HP == 0 {
-			sim.Status.TargetEnemy = nil
+		sim.enemies[i].HP = max(sim.enemies[i].HP-10, 0)
+		sim.status.TargetEnemy.HP = sim.enemies[i].HP
+		if sim.enemies[i].HP == 0 {
+			sim.status.TargetEnemy = nil
 		}
 		return
 	}
 }
 
 func (sim *AGVSimulator) consumeBatteryLocked() {
-	if sim.Status.Speed > 0 && sim.tick%batteryDrainTicks == 0 {
-		sim.Status.Battery--
+	if sim.status.Speed > 0 && sim.tick%batteryDrainTicks == 0 {
+		sim.status.Battery--
 	}
-	if sim.Status.Battery <= 0 {
-		sim.Status.Battery = 0
-		sim.Status.State = models.StateStopped
-		sim.Status.Speed = 0
+	if sim.status.Battery <= 0 {
+		sim.status.Battery = 0
+		sim.status.State = models.StateStopped
+		sim.status.Speed = 0
 		sim.path = nil
 	}
 }
 
 func (sim *AGVSimulator) clampPositionLocked() {
-	sim.Status.Position.X = math.Min(math.Max(sim.Status.Position.X, 0), MapSize)
-	sim.Status.Position.Y = math.Min(math.Max(sim.Status.Position.Y, 0), MapSize)
+	sim.status.Position.X = math.Min(math.Max(sim.status.Position.X, 0), MapSize)
+	sim.status.Position.Y = math.Min(math.Max(sim.status.Position.Y, 0), MapSize)
 }
 
 func (sim *AGVSimulator) distanceToLocked(x, y float64) float64 {
-	return math.Hypot(x-sim.Status.Position.X, y-sim.Status.Position.Y)
+	return math.Hypot(x-sim.status.Position.X, y-sim.status.Position.Y)
 }
 
 func flatEnemy(e models.Enemy) map[string]interface{} {
@@ -389,23 +389,23 @@ func flatEnemy(e models.Enemy) map[string]interface{} {
 }
 
 func (sim *AGVSimulator) buildBroadcastMessagesLocked() (statusMsg, positionMsg models.WebSocketMessage) {
-	flatEnemies := make([]map[string]interface{}, len(sim.Status.DetectedEnemies))
-	for i, enemy := range sim.Status.DetectedEnemies {
+	flatEnemies := make([]map[string]interface{}, len(sim.status.DetectedEnemies))
+	for i, enemy := range sim.status.DetectedEnemies {
 		flatEnemies[i] = flatEnemy(enemy)
 	}
 	var flatTarget map[string]interface{}
-	if sim.Status.TargetEnemy != nil {
-		flatTarget = flatEnemy(*sim.Status.TargetEnemy)
+	if sim.status.TargetEnemy != nil {
+		flatTarget = flatEnemy(*sim.status.TargetEnemy)
 	}
 
 	now := time.Now()
 	statusMsg = models.WebSocketMessage{
 		Type: models.MessageTypeStatus,
 		Data: map[string]interface{}{
-			"battery":          sim.Status.Battery,
-			"speed":            sim.Status.Speed,
-			"mode":             sim.Status.Mode,
-			"state":            sim.Status.State,
+			"battery":          sim.status.Battery,
+			"speed":            sim.status.Speed,
+			"mode":             sim.status.Mode,
+			"state":            sim.status.State,
 			"detected_enemies": flatEnemies,
 			"target_enemy":     flatTarget,
 		},
@@ -414,9 +414,9 @@ func (sim *AGVSimulator) buildBroadcastMessagesLocked() (statusMsg, positionMsg 
 	positionMsg = models.WebSocketMessage{
 		Type: models.MessageTypePosition,
 		Data: models.PositionData{
-			X:         sim.Status.Position.X,
-			Y:         sim.Status.Position.Y,
-			Angle:     sim.Status.Position.Angle,
+			X:         sim.status.Position.X,
+			Y:         sim.status.Position.Y,
+			Angle:     sim.status.Position.Angle,
 			Timestamp: now,
 		},
 		Timestamp: now.UnixMilli(),

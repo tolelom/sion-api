@@ -162,7 +162,7 @@ func TestSimulator_ResetRestoresInitialState(t *testing.T) {
 func TestSimulator_DeadBatteryStopsUntilReset(t *testing.T) {
 	sim, _ := newTestSim(true)
 	sim.mu.Lock()
-	sim.Status.Battery = 1
+	sim.status.Battery = 1
 	sim.mu.Unlock()
 	ticks(sim, 30)
 	stopped := position(sim)
@@ -210,7 +210,7 @@ func TestSimulator_MapUpdateListsObstaclesInsideMap(t *testing.T) {
 
 func TestSimulator_ConcurrentStartStopIsSafe(t *testing.T) {
 	sim, _ := newTestSim(true)
-	sim.UpdateInterval = time.Millisecond
+	sim.updateInterval = time.Millisecond
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
 		wg.Add(2)
@@ -242,7 +242,7 @@ func TestSimulator_SlowBroadcastDoesNotBlockCommands(t *testing.T) {
 		once.Do(func() { close(entered) })
 		<-release
 	}, func() bool { return true })
-	sim.UpdateInterval = time.Millisecond
+	sim.updateInterval = time.Millisecond
 	sim.Start()
 	defer func() {
 		close(release)

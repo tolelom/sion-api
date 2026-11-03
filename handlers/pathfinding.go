@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"fmt"
 	"log"
 	"sion-backend/algorithms"
+	"sion-backend/models"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -10,20 +12,11 @@ import (
 const maxMapSize = 200
 
 type PathfindingRequest struct {
-	Start struct {
-		X float64 `json:"x"`
-		Y float64 `json:"y"`
-	} `json:"start"`
-	Goal struct {
-		X float64 `json:"x"`
-		Y float64 `json:"y"`
-	} `json:"goal"`
-	MapWidth  int `json:"map_width"`
-	MapHeight int `json:"map_height"`
-	Obstacles []struct {
-		X int `json:"x"`
-		Y int `json:"y"`
-	} `json:"obstacles"`
+	Start     models.Waypoint `json:"start"`
+	Goal      models.Waypoint `json:"goal"`
+	MapWidth  int             `json:"map_width"`
+	MapHeight int             `json:"map_height"`
+	Obstacles []models.Cell   `json:"obstacles"`
 }
 
 type PathfindingResponse struct {
@@ -44,7 +37,7 @@ func HandlePathfinding(c *fiber.Ctx) error {
 	if req.MapWidth < 1 || req.MapHeight < 1 || req.MapWidth > maxMapSize || req.MapHeight > maxMapSize {
 		return c.Status(fiber.StatusBadRequest).JSON(PathfindingResponse{
 			Success: false,
-			Message: "맵 크기는 1~200 사이여야 합니다",
+			Message: fmt.Sprintf("맵 크기는 1~%d 사이여야 합니다", maxMapSize),
 		})
 	}
 

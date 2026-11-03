@@ -9,9 +9,7 @@ import (
 	"github.com/fasthttp/websocket"
 )
 
-// gofiber/websocket은 핸들러가 끝나면 *Conn을 풀에 돌려보내며 내부 연결을 nil로 비운다.
-// 브로드캐스트가 그 뒤에 같은 *Conn에 쓰면 nil 역참조로 서버 전체가 죽는다.
-// 클라이언트가 접속·해제를 반복하는 동안 브로드캐스트를 계속 보내도 안전해야 한다.
+// 풀로 돌아간 *Conn에 브로드캐스트가 쓰면 nil 역참조로 서버 전체가 죽는다.
 func TestBroadcastDuringDisconnectIsSafe(t *testing.T) {
 	srv := newWSTestServer(t)
 

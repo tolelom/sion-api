@@ -19,7 +19,10 @@ import (
 	"github.com/gofiber/websocket/v2"
 )
 
-const shutdownTimeout = 5 * time.Second
+const (
+	shutdownTimeout     = 5 * time.Second
+	maxRequestBodyBytes = 64 * 1024
+)
 
 func main() {
 	cm := services.NewClientManager(services.DefaultWriteTimeout)
@@ -44,7 +47,7 @@ func main() {
 	case <-ctx.Done():
 	}
 	log.Printf("[INFO] 종료 신호를 받아 서버를 멈춘다")
-	// 업그레이드된 WebSocket 연결은 기다리지 않는다. 진행 중인 HTTP 요청만 마무리한다.
+	// fasthttp는 hijack된 WebSocket 연결을 세지 않아, 여기서는 진행 중인 HTTP 요청만 기다린다.
 	if err := app.ShutdownWithTimeout(shutdownTimeout); err != nil {
 		log.Printf("[WARN] 서버 종료 실패: %v", err)
 	}
@@ -58,7 +61,7 @@ func envOr(key, fallback string) string {
 }
 
 func newApp(cm *services.ClientManager, sim *services.AGVSimulator, allowedOrigins string) *fiber.App {
-	app := fiber.New(fiber.Config{BodyLimit: 64 * 1024})
+	app := fiber.New(fiber.Config{BodyLimit: maxRequestBodyBytes})
 	app.Use(recover.New())
 	app.Use(logger.New())
 	app.Use(cors.New(cors.Config{

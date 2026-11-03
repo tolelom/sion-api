@@ -50,7 +50,28 @@ flowchart LR
 | `services/simulator_world.go` | 장애물·적 생성 |
 | `services/client_manager.go` | 접속 관리, 쓰기 타임아웃, 브로드캐스트 |
 | `algorithms/astar.go` | 격자 A* |
-| `models` | 메시지, 상태, 맵 타입 |
+| `models` | 메시지 본문, 상태, 맵 타입 |
+| `contract/` | 대시보드와의 계약: JSON Schema, 메시지 예시, 경로 탐색 픽스처, sion-robot과 같이 쓰는 A* 케이스 |
+
+## 계약
+
+sion-web과 주고받는 모양은 이 저장소의 `contract/`가 정한다.
+
+| 파일 | 내용 |
+|---|---|
+| `contract/sion.schema.json` | JSON Schema(draft 2020-12). WebSocket 서버 메시지(`ServerMessage`), 대시보드 명령(`ClientCommand`), `PathfindingRequest`·`PathfindingResponse` |
+| `contract/fixtures/server/*.json` | 서버 메시지 종류별 예시 |
+| `contract/fixtures/client/*.json` | 명령 종류별로 받아들이는 예시(`accepted`, 뒤따르는 시뮬레이터 상태 `then`)와 거절하는 예시(`rejected`, 오류 문구 `error`). `invalid.json`은 형식이 틀린 메시지 |
+| `contract/fixtures/pathfinding.json` | 경로 탐색 요청과 HTTP 상태·응답 |
+| `contract/pathfinding-cases.json` | sion-robot `astar.py`와 같이 쓰는 A* 케이스(비용·칸 수, 유일할 때만 경로) |
+
+`go test ./...`가 실제 브로드캐스트·접속 메시지·오류 응답을 스키마로 검사하고, 픽스처를 Go 타입과 실제 핸들러에 통과시킨다. 서버 메시지는 스키마에 없는 필드를 허용하지 않으므로 필드를 더하거나 바꾸면 스키마를 같이 고쳐야 테스트가 통과한다. 거절 예시는 스키마도 어겨야 한다.
+
+계약을 바꿀 때:
+
+1. `contract/`의 스키마와 픽스처를 고치고 `go test ./...`를 통과시킨다.
+2. sion-web에서 `npm run contract:sync`로 복사하고 `npm run contract:types`로 타입을 다시 만든다(sion-web README 참고).
+3. A* 케이스를 바꿨다면 sion-robot `tests/fixtures/pathfinding-cases.json`에도 복사한다.
 
 ## 실행
 

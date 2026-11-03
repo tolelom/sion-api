@@ -21,31 +21,23 @@ const (
 	agvName = "사이온"
 
 	defaultUpdateInterval = 500 * time.Millisecond
-	// stepPerSpeed는 속도 1일 때 한 틱에 움직이는 거리다. 기본 틱 0.5초에 맞춘 값이다.
-	stepPerSpeed = 0.5
-	cruiseSpeed  = 1.0 // 수색·경로 추종 속도
-	chargeSpeed  = 2.5 // 표적을 향해 돌진하는 속도
-	// turnChance는 수색 중 매 틱 방향을 무작위로 바꿀 확률이다.
-	turnChance = 0.1
+	defaultTickSeconds    = float64(defaultUpdateInterval) / float64(time.Second)
+	cruiseSpeed           = 1.0
+	chargeSpeed           = 2.5
+	randomWalkTurnChance  = 0.1
 
 	attackChance = 0.2
 	attackDamage = 10
 	minEnemyHP   = 20
 	maxEnemyHP   = 100
 
-	fullBattery       = 100
-	batteryDrainTicks = 5 // 움직이는 동안 이 틱마다 배터리 1 감소
+	fullBattery                  = 100
+	movingTicksPerBatteryPercent = 5
 )
 
 var enemyNames = []string{"아리", "야스오", "지글스", "룩스", "제드"}
 
-// AGVSimulator는 공개 데모에서 실제 AGV 대신 움직이는 가상 AGV다.
-// 틱마다 상태를 한 걸음 진행하고(step) 상태·위치 메시지를 브로드캐스트한다.
-//
-// 파일 구성: simulator.go(수명주기·틱·메시지), simulator_commands.go(WS 명령),
-// simulator_behavior.go(이동·전투·배터리), simulator_world.go(장애물·적 생성).
-//
-// 이름이 Locked로 끝나는 메서드는 호출자가 mu를 쥐고 있어야 한다.
+// AGVSimulator는 공개 데모에서 실제 AGV 대신 움직인다. ~Locked 메서드는 mu를 쥔 채 불러야 하며,
 // 브로드캐스트는 느린 클라이언트가 명령 처리를 막지 않도록 mu 밖에서 보낸다.
 type AGVSimulator struct {
 	mu        sync.RWMutex
@@ -98,7 +90,6 @@ func (sim *AGVSimulator) IsRunning() bool {
 	return sim.running.Load()
 }
 
-// Snapshot은 현재 AGV 상태와 적 목록의 복사본을 돌려준다.
 func (sim *AGVSimulator) Snapshot() (models.AGVStatus, []models.Enemy) {
 	sim.mu.RLock()
 	defer sim.mu.RUnlock()

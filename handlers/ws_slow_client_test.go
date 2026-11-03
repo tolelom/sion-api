@@ -10,7 +10,7 @@ import (
 func TestBroadcast_StuckClientDoesNotStallOthers(t *testing.T) {
 	cm := services.NewClientManager()
 	cm.SetWriteTimeout(200 * time.Millisecond)
-	srv := newWSTestServerWith(t, cm)
+	srv := newWSTestServerWith(t, cm, defaultKeepalive)
 
 	srv.dial(t, "/websocket/web")
 	healthy := srv.dial(t, "/websocket/web")

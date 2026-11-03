@@ -1,20 +1,19 @@
 package handlers
 
 import (
+	"sion-backend/services"
 	"testing"
 	"time"
 )
 
-func shortenKeepalive(t *testing.T, pong, ping, write time.Duration) {
-	t.Helper()
-	oldPong, oldPing, oldWrite := pongWait, pingPeriod, writeWait
-	pongWait, pingPeriod, writeWait = pong, ping, write
-	t.Cleanup(func() { pongWait, pingPeriod, writeWait = oldPong, oldPing, oldWrite })
+var shortKeepalive = keepalive{
+	pongWait:   200 * time.Millisecond,
+	pingPeriod: 50 * time.Millisecond,
+	writeWait:  100 * time.Millisecond,
 }
 
 func TestWS_KeepaliveDropsSilentClient(t *testing.T) {
-	shortenKeepalive(t, 200*time.Millisecond, 50*time.Millisecond, 100*time.Millisecond)
-	srv := newWSTestServer(t)
+	srv := newWSTestServerWith(t, services.NewClientManager(), shortKeepalive)
 	web := srv.dial(t, "/websocket/web")
 	web.SetPingHandler(func(string) error { return nil })
 	waitFor(t, time.Second, func() bool { return srv.cm.Count() == 1 }, "client not registered")
@@ -29,8 +28,7 @@ func TestWS_KeepaliveDropsSilentClient(t *testing.T) {
 }
 
 func TestWS_KeepaliveKeepsRespondingClient(t *testing.T) {
-	shortenKeepalive(t, 200*time.Millisecond, 50*time.Millisecond, 100*time.Millisecond)
-	srv := newWSTestServer(t)
+	srv := newWSTestServerWith(t, services.NewClientManager(), shortKeepalive)
 	web := srv.dial(t, "/websocket/web")
 	go func() {
 		for {

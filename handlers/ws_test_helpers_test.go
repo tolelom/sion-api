@@ -21,10 +21,10 @@ type wsTestServer struct {
 
 func newWSTestServer(t *testing.T) *wsTestServer {
 	t.Helper()
-	return newWSTestServerWith(t, services.NewClientManager())
+	return newWSTestServerWith(t, services.NewClientManager(), defaultKeepalive)
 }
 
-func newWSTestServerWith(t *testing.T, cm *services.ClientManager) *wsTestServer {
+func newWSTestServerWith(t *testing.T, cm *services.ClientManager, ka keepalive) *wsTestServer {
 	t.Helper()
 	sim := services.NewAGVSimulator(func(msg models.WebSocketMessage) { cm.BroadcastJSON(msg) }, func() bool { return cm.Count() > 0 })
 
@@ -35,7 +35,7 @@ func newWSTestServerWith(t *testing.T, cm *services.ClientManager) *wsTestServer
 		}
 		return fiber.ErrUpgradeRequired
 	})
-	app.Get("/websocket/web", fiberws.New(NewWebHandler(cm, sim)))
+	app.Get("/websocket/web", fiberws.New(newWebHandler(cm, sim, ka)))
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

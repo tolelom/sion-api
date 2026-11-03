@@ -37,12 +37,16 @@ func (l *commandLimiter) allow() bool {
 }
 
 func NewWebHandler(cm *services.ClientManager, sim *services.AGVSimulator) func(*websocket.Conn) {
+	return newWebHandler(cm, sim, defaultKeepalive)
+}
+
+func newWebHandler(cm *services.ClientManager, sim *services.AGVSimulator, ka keepalive) func(*websocket.Conn) {
 	return func(c *websocket.Conn) {
 		c.SetReadLimit(maxMessageBytes)
 		limiter := newCommandLimiter()
 		cm.Register(c)
 		defer cm.Unregister(c)
-		stopKeepalive := installKeepalive(cm, c, "Web")
+		stopKeepalive := ka.install(cm, c, "Web")
 		defer stopKeepalive()
 
 		sendWelcome(cm, c, sim)

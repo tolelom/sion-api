@@ -134,10 +134,10 @@ func (m *ClientManager) BroadcastJSON(v any) {
 		log.Printf("[ERROR] 브로드캐스트 marshal 실패: %v", err)
 		return
 	}
-	m.BroadcastToWeb(data)
+	m.Broadcast(data)
 }
 
-func (m *ClientManager) BroadcastToWeb(data []byte) {
+func (m *ClientManager) Broadcast(data []byte) {
 	for _, entry := range m.snapshotClients() {
 		err := m.writeText(entry, data)
 		if err == nil || errors.Is(err, errClientClosed) {

@@ -20,7 +20,7 @@ func TestBroadcast_StuckClientDoesNotStallOthers(t *testing.T) {
 	go func() {
 		defer close(done)
 		for i := 0; i < 30; i++ {
-			cm.BroadcastToWeb(payload)
+			cm.Broadcast(payload)
 		}
 	}()
 	go func() {

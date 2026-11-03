@@ -59,6 +59,12 @@ func (s *wsTestServer) dial(t *testing.T, path string) *websocket.Conn {
 
 func readUntilType(t *testing.T, c *websocket.Conn, want string, deadline time.Duration) models.WebSocketMessage {
 	t.Helper()
+	msg, _ := readRawUntilType(t, c, want, deadline)
+	return msg
+}
+
+func readRawUntilType(t *testing.T, c *websocket.Conn, want string, deadline time.Duration) (models.WebSocketMessage, []byte) {
+	t.Helper()
 	end := time.Now().Add(deadline)
 	for time.Now().Before(end) {
 		c.SetReadDeadline(end)
@@ -71,11 +77,11 @@ func readUntilType(t *testing.T, c *websocket.Conn, want string, deadline time.D
 			t.Fatalf("decode: %v (raw=%s)", err, raw)
 		}
 		if msg.Type == want {
-			return msg
+			return msg, raw
 		}
 	}
 	t.Fatalf("no %s message within %v", want, deadline)
-	return models.WebSocketMessage{}
+	return models.WebSocketMessage{}, nil
 }
 
 func waitFor(t *testing.T, deadline time.Duration, cond func() bool, msg string) {

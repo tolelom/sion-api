@@ -46,7 +46,7 @@ func newWebHandler(cm *services.ClientManager, sim *services.AGVSimulator, ka ke
 		limiter := newCommandLimiter()
 		cm.Register(c)
 		defer cm.Unregister(c)
-		stopKeepalive := ka.start(cm, c, "Web")
+		stopKeepalive := ka.start(cm, c)
 		defer stopKeepalive()
 
 		sendWelcome(cm, c, sim)
@@ -80,9 +80,9 @@ func sendWelcome(cm *services.ClientManager, c *websocket.Conn, sim *services.AG
 	now := time.Now()
 	welcome := models.WebSocketMessage{
 		Type: models.MessageTypeSystemInfo,
-		Data: map[string]interface{}{
-			"agv_connected": true,
-			"server_time":   now.Format(time.RFC3339),
+		Data: models.SystemInfoData{
+			AGVConnected: true,
+			ServerTime:   now.Format(time.RFC3339),
 		},
 		Timestamp: now.UnixMilli(),
 	}
@@ -97,7 +97,7 @@ func sendWelcome(cm *services.ClientManager, c *websocket.Conn, sim *services.AG
 func sendError(cm *services.ClientManager, c *websocket.Conn, reason string) {
 	errMsg := models.WebSocketMessage{
 		Type:      models.MessageTypeError,
-		Data:      map[string]interface{}{"message": reason},
+		Data:      models.ErrorData{Message: reason},
 		Timestamp: time.Now().UnixMilli(),
 	}
 	if err := cm.WriteJSON(c, errMsg); err != nil {

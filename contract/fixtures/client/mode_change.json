@@ -1,0 +1,14 @@
+{
+  "accepted": [
+    {"name": "to manual", "message": {"type": "mode_change", "data": {"mode": "manual"}}, "then": {"mode": "manual"}},
+    {"name": "to auto", "message": {"type": "mode_change", "data": {"mode": "auto"}}, "then": {"mode": "auto"}},
+    {"name": "extra fields are ignored", "message": {"type": "mode_change", "data": {"mode": "manual", "extra": 1}}, "then": {"mode": "manual"}}
+  ],
+  "rejected": [
+    {"name": "null data", "message": {"type": "mode_change", "data": null}, "error": "알 수 없는 모드: \"\""},
+    {"name": "no data key", "message": {"type": "mode_change"}, "error": "알 수 없는 모드: \"\""},
+    {"name": "unknown mode", "message": {"type": "mode_change", "data": {"mode": "turbo"}}, "error": "알 수 없는 모드: \"turbo\""},
+    {"name": "string data", "message": {"type": "mode_change", "data": "manual"}, "error": "잘못된 명령 형식"},
+    {"name": "mode of the wrong type", "message": {"type": "mode_change", "data": {"mode": 5}}, "error": "잘못된 명령 형식"}
+  ]
+}

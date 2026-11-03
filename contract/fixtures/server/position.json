@@ -1,0 +1,4 @@
+[
+  {"name": "start position", "message": {"type": "position", "data": {"x": 2, "y": 2, "angle": 0, "timestamp": "2026-10-16T00:00:00Z"}, "timestamp": 1760572800000}},
+  {"name": "fractional position with negative angle", "message": {"type": "position", "data": {"x": 7.35, "y": 0.5, "angle": -2.356, "timestamp": "2026-10-16T09:00:00.5+09:00"}, "timestamp": 1760572800000}}
+]

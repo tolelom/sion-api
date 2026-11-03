@@ -8,25 +8,24 @@ Go 1.25 · Fiber v2 · WebSocket · 데모 https://sion.tolelom.xyz
 
 Sion은 LoL 챔피언 사이온의 궁극기(목표를 향한 직선 돌진)를 Jetson 기반 AGV로 옮긴 프로젝트다. AGV는 맵에서 적을 찾아 장애물을 피해 접근한 뒤 직선 구간에서 가속해 돌진한다.
 
-이 저장소는 대시보드와 AGV 사이의 서버다. 대시보드에 WebSocket으로 AGV 상태를 보내고 명령을 받으며, REST로 A* 경로 탐색을 제공한다.
+이 저장소는 대시보드용 서버다. 대시보드에 WebSocket으로 AGV 상태를 보내고 명령을 받으며, REST로 A* 경로 탐색을 제공한다.
 
-지금은 공개 데모 모드로 동작한다. 실제 AGV 대신 서버 안의 시뮬레이터가 AGV 역할을 하고, 모든 방문자가 시뮬레이터 하나를 같이 조작한다. 데모로 바꾸면서 LLM 해설·채팅, MySQL 로그 저장, 실제 AGV 연결을 뺐다. 이 코드는 git 이력에 남아 있다.
+Sion은 데모 전용으로 동작한다. 서버 안의 시뮬레이터가 AGV 역할을 하고, 모든 방문자가 시뮬레이터 하나를 같이 조작한다. 실제 로봇([sion-robot](https://github.com/tolelom/sion-robot))은 JETANK에서 단독으로 돌며 이 서버와 연결되지 않는다. 데모로 바꾸면서 뺀 LLM 해설·채팅, MySQL 로그 저장, 실제 AGV 연결(`/websocket/agv`)은 git 이력에 남아 있다.
 
 ## 시스템 구성
 
 ```mermaid
 flowchart LR
-    Web["sion-web<br/>대시보드"] -- "WebSocket<br/>상태 수신, 명령 전송" --> API["sion-api<br/>Go Fiber"]
+    Web["sion-web<br/>대시보드"] -- "WebSocket<br/>상태 수신, 명령 전송" --> API["sion-api<br/>Go Fiber + AGV 시뮬레이터"]
     Web -- "REST<br/>A* 경로 요청" --> API
-    API -. "WebSocket<br/>원래 구성" .-> Robot["sion-robot<br/>Jetson AGV 제어"]
-    API -- "데모" --> Sim["AGV 시뮬레이터"]
+    Robot["sion-robot<br/>JETANK 단독 실행"]
 ```
 
 | 저장소 | 역할 |
 |---|---|
 | [sion-web](https://github.com/tolelom/sion-web) | 관제 대시보드 |
-| sion-api | A* 경로 탐색, 데모용 AGV 시뮬레이터. 원래 구성에서는 AGV와 대시보드 사이 상태 중계(이 저장소) |
-| [sion-robot](https://github.com/tolelom/sion-robot) | AGV 제어. 경로 계획, 경로 추종, 적 돌진 |
+| sion-api | 대시보드용 WebSocket·REST 서버. 내장 시뮬레이터가 AGV 역할을 한다(이 저장소) |
+| [sion-robot](https://github.com/tolelom/sion-robot) | JETANK 제어. 경로 계획, 경로 추종, 적 돌진. 서버와 연결되지 않는다 |
 
 ## 기능
 
@@ -51,7 +50,28 @@ flowchart LR
 | `services/simulator_world.go` | 장애물·적 생성 |
 | `services/client_manager.go` | 접속 관리, 쓰기 타임아웃, 브로드캐스트 |
 | `algorithms/astar.go` | 격자 A* |
-| `models` | 메시지, 상태, 맵 타입 |
+| `models` | 메시지 본문, 상태, 맵 타입 |
+| `contract/` | 대시보드와의 계약: JSON Schema, 메시지 예시, 경로 탐색 픽스처, sion-robot과 같이 쓰는 A* 케이스 |
+
+## 계약
+
+sion-web과 주고받는 모양은 이 저장소의 `contract/`가 정한다.
+
+| 파일 | 내용 |
+|---|---|
+| `contract/sion.schema.json` | JSON Schema(draft 2020-12). WebSocket 서버 메시지(`ServerMessage`), 대시보드 명령(`ClientCommand`), `PathfindingRequest`·`PathfindingResponse` |
+| `contract/fixtures/server/*.json` | 서버 메시지 종류별 예시 |
+| `contract/fixtures/client/*.json` | 명령 종류별로 받아들이는 예시(`accepted`, 뒤따르는 시뮬레이터 상태 `then`)와 거절하는 예시(`rejected`, 오류 문구 `error`). `invalid.json`은 형식이 틀린 메시지 |
+| `contract/fixtures/pathfinding.json` | 경로 탐색 요청과 HTTP 상태·응답 |
+| `contract/pathfinding-cases.json` | sion-robot `astar.py`와 같이 쓰는 A* 케이스(비용·칸 수, 유일할 때만 경로) |
+
+`go test ./...`가 실제 브로드캐스트·접속 메시지·오류 응답을 스키마로 검사하고, 픽스처를 Go 타입과 실제 핸들러에 통과시킨다. 서버 메시지는 스키마에 없는 필드를 허용하지 않으므로 필드를 더하거나 바꾸면 스키마를 같이 고쳐야 테스트가 통과한다. 거절 예시는 스키마도 어겨야 한다.
+
+계약을 바꿀 때:
+
+1. `contract/`의 스키마와 픽스처를 고치고 `go test ./...`를 통과시킨다.
+2. sion-web에서 `npm run contract:sync`로 복사하고 `npm run contract:types`로 타입을 다시 만든다(sion-web README 참고).
+3. A* 케이스를 바꿨다면 sion-robot `tests/fixtures/pathfinding-cases.json`에도 복사한다.
 
 ## 실행
 

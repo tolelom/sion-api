@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"sion-backend/contract"
 	"sion-backend/models"
 	"testing"
 	"time"
@@ -11,11 +12,13 @@ import (
 func TestWS_WelcomeSendsSystemInfoAndMap(t *testing.T) {
 	srv := newWSTestServer(t)
 	web := srv.dial(t, "/websocket/web")
-	info := readUntilType(t, web, models.MessageTypeSystemInfo, time.Second)
+	info, raw := readRawUntilType(t, web, models.MessageTypeSystemInfo, time.Second)
+	contract.Validate(t, "SystemInfoMessage", raw)
 	if info.Data.(map[string]any)["agv_connected"] != true {
 		t.Fatalf("the simulated AGV should be reported as connected: %v", info.Data)
 	}
-	m := readUntilType(t, web, models.MessageTypeMapUpdate, time.Second)
+	m, raw := readRawUntilType(t, web, models.MessageTypeMapUpdate, time.Second)
+	contract.Validate(t, "MapUpdateMessage", raw)
 	if obs, _ := m.Data.(map[string]any)["obstacles"].([]any); len(obs) == 0 {
 		t.Fatalf("map update without obstacles: %v", m.Data)
 	}

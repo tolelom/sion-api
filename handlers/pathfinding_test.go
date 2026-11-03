@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"sion-backend/contract"
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
@@ -50,122 +52,51 @@ func doPathfinding(t *testing.T, app *fiber.App, body any) (int, PathfindingResp
 	return resp.StatusCode, out
 }
 
-func TestHandlePathfinding_StraightLine(t *testing.T) {
-	app := newPathfindingApp()
-
-	body := map[string]any{
-		"start":      map[string]float64{"x": 0, "y": 0},
-		"goal":       map[string]float64{"x": 4, "y": 0},
-		"map_width":  5,
-		"map_height": 5,
-	}
-
-	status, resp := doPathfinding(t, app, body)
-	if status != http.StatusOK {
-		t.Fatalf("HTTP 200 기대, got %d", status)
-	}
-	if !resp.Success {
-		t.Fatalf("success=true 기대, got %+v", resp)
-	}
-	if len(resp.Path) != 5 {
-		t.Fatalf("5포인트 기대, got %d (%v)", len(resp.Path), resp.Path)
-	}
-	if resp.Path[0].X != 0 || resp.Path[0].Y != 0 {
-		t.Fatalf("시작점 (0,0) 기대, got %+v", resp.Path[0])
-	}
-	if resp.Path[4].X != 4 || resp.Path[4].Y != 0 {
-		t.Fatalf("끝점 (4,0) 기대, got %+v", resp.Path[4])
-	}
+type pathfindingFixture struct {
+	Name     string          `json:"name"`
+	Request  json.RawMessage `json:"request"`
+	Raw      string          `json:"raw"`
+	Status   int             `json:"status"`
+	Response json.RawMessage `json:"response"`
 }
 
-func TestHandlePathfinding_StartEqualsGoal(t *testing.T) {
+func TestHandlePathfinding_ContractFixtures(t *testing.T) {
+	var fixtures []pathfindingFixture
+	contract.LoadJSON(t, "fixtures/pathfinding.json", &fixtures)
 	app := newPathfindingApp()
+	for _, f := range fixtures {
+		t.Run(f.Name, func(t *testing.T) {
+			body := f.Raw
+			if f.Request != nil {
+				body = string(f.Request)
+				err := contract.Check(t, "PathfindingRequest", f.Request)
+				if wantValid := f.Status == http.StatusOK; (err == nil) != wantValid {
+					t.Fatalf("request schema valid=%v, want %v for HTTP %d: %v", err == nil, wantValid, f.Status, err)
+				}
+			}
+			contract.Validate(t, "PathfindingResponse", f.Response)
 
-	body := map[string]any{
-		"start":      map[string]float64{"x": 2, "y": 2},
-		"goal":       map[string]float64{"x": 2, "y": 2},
-		"map_width":  5,
-		"map_height": 5,
-	}
-	status, resp := doPathfinding(t, app, body)
-	if status != http.StatusOK || !resp.Success {
-		t.Fatalf("성공 기대, got status=%d resp=%+v", status, resp)
-	}
-	if len(resp.Path) != 1 {
-		t.Fatalf("1포인트 기대, got %d", len(resp.Path))
-	}
-}
-
-func TestHandlePathfinding_Unreachable(t *testing.T) {
-	app := newPathfindingApp()
-
-	body := map[string]any{
-		"start":      map[string]float64{"x": 0, "y": 0},
-		"goal":       map[string]float64{"x": 4, "y": 4},
-		"map_width":  5,
-		"map_height": 5,
-		"obstacles": []map[string]int{
-			{"x": 4, "y": 3},
-			{"x": 3, "y": 4},
-			{"x": 3, "y": 3},
-		},
-	}
-	status, resp := doPathfinding(t, app, body)
-	if status != http.StatusOK {
-		t.Fatalf("경로가 없어도 HTTP 200 + success=false 기대, got %d", status)
-	}
-	if resp.Success {
-		t.Fatalf("도달 불가능 → success=false 기대, got %+v", resp)
-	}
-	if resp.Message == "" {
-		t.Fatal("실패 메시지 기대")
-	}
-	if len(resp.Path) != 0 {
-		t.Fatalf("실패 시 path 비어있어야 함, got %v", resp.Path)
-	}
-}
-
-func TestHandlePathfinding_BadRequest(t *testing.T) {
-	app := newPathfindingApp()
-
-	req := httptest.NewRequest(http.MethodPost, "/api/pathfinding",
-		bytes.NewBufferString("not-json"))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := app.Test(req, -1)
-	if err != nil {
-		t.Fatalf("app.Test 실패: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("HTTP 400 기대, got %d", resp.StatusCode)
-	}
-
-	var out PathfindingResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		t.Fatalf("응답 디코딩 실패: %v", err)
-	}
-	if out.Success {
-		t.Fatal("success=false 기대")
-	}
-}
-
-func TestHandlePathfinding_GoalOnObstacle(t *testing.T) {
-	app := newPathfindingApp()
-
-	body := map[string]any{
-		"start":      map[string]float64{"x": 0, "y": 0},
-		"goal":       map[string]float64{"x": 3, "y": 3},
-		"map_width":  5,
-		"map_height": 5,
-		"obstacles":  []map[string]int{{"x": 3, "y": 3}},
-	}
-	status, resp := doPathfinding(t, app, body)
-	if status != http.StatusOK {
-		t.Fatalf("HTTP 200 기대, got %d", status)
-	}
-	if resp.Success {
-		t.Fatalf("장애물 위 목표 → success=false 기대, got %+v", resp)
+			req := httptest.NewRequest(http.MethodPost, "/api/pathfinding", bytes.NewBufferString(body))
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := app.Test(req, -1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			raw, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.StatusCode != f.Status {
+				t.Fatalf("HTTP %d, want %d (body=%s)", resp.StatusCode, f.Status, raw)
+			}
+			contract.Validate(t, "PathfindingResponse", raw)
+			var got, want any
+			json.Unmarshal(raw, &got)
+			json.Unmarshal(f.Response, &want)
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("response\n%s\nwant\n%s", raw, f.Response)
+			}
+		})
 	}
 }

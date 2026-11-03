@@ -111,9 +111,8 @@ func TestHandlePathfinding_Unreachable(t *testing.T) {
 		},
 	}
 	status, resp := doPathfinding(t, app, body)
-	// 핸들러는 실패 시에도 200 + success=false로 응답한다
 	if status != http.StatusOK {
-		t.Fatalf("HTTP 200 기대, got %d", status)
+		t.Fatalf("경로가 없어도 HTTP 200 + success=false 기대, got %d", status)
 	}
 	if resp.Success {
 		t.Fatalf("도달 불가능 → success=false 기대, got %+v", resp)

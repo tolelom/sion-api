@@ -46,7 +46,7 @@ func newWebHandler(cm *services.ClientManager, sim *services.AGVSimulator, ka ke
 		limiter := newCommandLimiter()
 		cm.Register(c)
 		defer cm.Unregister(c)
-		stopKeepalive := ka.install(cm, c, "Web")
+		stopKeepalive := ka.start(cm, c, "Web")
 		defer stopKeepalive()
 
 		sendWelcome(cm, c, sim)

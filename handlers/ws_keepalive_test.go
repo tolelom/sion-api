@@ -6,11 +6,7 @@ import (
 	"time"
 )
 
-var shortKeepalive = keepalive{
-	pongWait:   200 * time.Millisecond,
-	pingPeriod: 50 * time.Millisecond,
-	writeWait:  100 * time.Millisecond,
-}
+var shortKeepalive = newKeepalive(200*time.Millisecond, 50*time.Millisecond, 100*time.Millisecond)
 
 func TestWS_KeepaliveDropsSilentClient(t *testing.T) {
 	srv := newWSTestServerWith(t, services.NewClientManager(services.DefaultWriteTimeout), shortKeepalive)

@@ -12,19 +12,23 @@ import (
 
 var errClientClosed = errors.New("클라이언트 연결이 이미 닫혔습니다")
 
-// clientEntry는 연결 하나의 쓰기를 직렬화한다.
-//
-// gofiber/websocket은 핸들러가 끝나면 *websocket.Conn을 풀에 돌려보내 내부 연결을 nil로 비우고,
-// 다음 접속에 같은 포인터를 다시 쓴다. 그래서 핸들러 밖의 고루틴(브로드캐스트)은 conn에 손대기 전에
-// 반드시 writeMu를 잡고 closed를 확인한다. 핸들러는 closed가 세워진 것을 확인한 뒤에야 끝나므로
-// (Unregister가 직접 세우거나, 이미 drop이 세우고 목록에서 뺐거나), 그 뒤로는 어떤 고루틴도 conn을 건드리지 않는다.
+// gofiber/websocket은 핸들러가 끝나면 *websocket.Conn을 풀에 돌려보내 재사용한다.
+// 그래서 핸들러 밖의 쓰기는 withOpenConn으로만 하고, 핸들러는 closed가 세워진 뒤에야 반환한다.
 type clientEntry struct {
 	conn    *websocket.Conn
 	writeMu sync.Mutex
 	closed  bool
 }
 
-// close는 연결을 닫고 이후 쓰기를 막는다. 여러 번 불러도 된다.
+func (e *clientEntry) withOpenConn(write func(*websocket.Conn) error) error {
+	e.writeMu.Lock()
+	defer e.writeMu.Unlock()
+	if e.closed {
+		return errClientClosed
+	}
+	return write(e.conn)
+}
+
 func (e *clientEntry) close() {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
@@ -41,16 +45,13 @@ type ClientManager struct {
 	writeTimeout time.Duration
 }
 
-func NewClientManager() *ClientManager {
+const DefaultWriteTimeout = 5 * time.Second
+
+func NewClientManager(writeTimeout time.Duration) *ClientManager {
 	return &ClientManager{
 		clients:      make(map[*websocket.Conn]*clientEntry),
-		writeTimeout: 5 * time.Second,
+		writeTimeout: writeTimeout,
 	}
-}
-
-// SetWriteTimeout은 연결을 받기 전에만 불러야 한다.
-func (m *ClientManager) SetWriteTimeout(d time.Duration) {
-	m.writeTimeout = d
 }
 
 func (m *ClientManager) Register(conn *websocket.Conn) {
@@ -60,7 +61,7 @@ func (m *ClientManager) Register(conn *websocket.Conn) {
 	log.Printf("[INFO] 클라이언트 등록: %s", conn.RemoteAddr())
 }
 
-// Unregister는 conn을 목록에서 빼고 닫는다. 핸들러가 끝나기 전에 핸들러 고루틴에서 불러야 한다.
+// Unregister는 핸들러가 반환하기 전에 핸들러 고루틴에서 불러야 한다.
 func (m *ClientManager) Unregister(conn *websocket.Conn) {
 	m.mutex.Lock()
 	entry, ok := m.clients[conn]
@@ -96,16 +97,13 @@ func (m *ClientManager) snapshotClients() []*clientEntry {
 	return out
 }
 
-func (m *ClientManager) safeWrite(entry *clientEntry, data []byte) error {
-	entry.writeMu.Lock()
-	defer entry.writeMu.Unlock()
-	if entry.closed {
-		return errClientClosed
-	}
-	if err := entry.conn.SetWriteDeadline(time.Now().Add(m.writeTimeout)); err != nil {
-		return err
-	}
-	return entry.conn.WriteMessage(websocket.TextMessage, data)
+func (m *ClientManager) writeText(entry *clientEntry, data []byte) error {
+	return entry.withOpenConn(func(conn *websocket.Conn) error {
+		if err := conn.SetWriteDeadline(time.Now().Add(m.writeTimeout)); err != nil {
+			return err
+		}
+		return conn.WriteMessage(websocket.TextMessage, data)
+	})
 }
 
 func (m *ClientManager) WriteJSON(conn *websocket.Conn, v any) error {
@@ -117,7 +115,7 @@ func (m *ClientManager) WriteJSON(conn *websocket.Conn, v any) error {
 	if err != nil {
 		return err
 	}
-	return m.safeWrite(entry, data)
+	return m.writeText(entry, data)
 }
 
 func (m *ClientManager) WriteControl(conn *websocket.Conn, messageType int, data []byte, deadline time.Time) error {
@@ -125,12 +123,9 @@ func (m *ClientManager) WriteControl(conn *websocket.Conn, messageType int, data
 	if !ok {
 		return nil
 	}
-	entry.writeMu.Lock()
-	defer entry.writeMu.Unlock()
-	if entry.closed {
-		return errClientClosed
-	}
-	return entry.conn.WriteControl(messageType, data, deadline)
+	return entry.withOpenConn(func(conn *websocket.Conn) error {
+		return conn.WriteControl(messageType, data, deadline)
+	})
 }
 
 func (m *ClientManager) BroadcastJSON(v any) {
@@ -142,10 +137,9 @@ func (m *ClientManager) BroadcastJSON(v any) {
 	m.BroadcastToWeb(data)
 }
 
-// BroadcastToWeb은 등록된 모든 클라이언트에 data를 보낸다. 쓰기에 실패한 연결은 닫고 목록에서 뺀다.
 func (m *ClientManager) BroadcastToWeb(data []byte) {
 	for _, entry := range m.snapshotClients() {
-		err := m.safeWrite(entry, data)
+		err := m.writeText(entry, data)
 		if err == nil || errors.Is(err, errClientClosed) {
 			continue
 		}
@@ -154,9 +148,8 @@ func (m *ClientManager) BroadcastToWeb(data []byte) {
 	}
 }
 
-// drop은 entry를 닫고, 목록이 아직 그 entry를 가리킬 때만 뺀다.
-// conn 키만 보고 지우면 풀에서 재사용된 같은 포인터의 새 클라이언트를 지울 수 있다.
-// closed를 먼저 세우므로, 목록에서 빠진 것을 본 핸들러의 Unregister가 곧바로 끝나도 안전하다.
+// 먼저 닫아야 목록에서 빠진 것을 본 Unregister가 곧장 반환해도 안전하다.
+// 같은 conn 키가 풀에서 재사용돼 새 클라이언트를 가리킬 수 있어, 같은 entry일 때만 뺀다.
 func (m *ClientManager) drop(entry *clientEntry) {
 	entry.close()
 	m.mutex.Lock()

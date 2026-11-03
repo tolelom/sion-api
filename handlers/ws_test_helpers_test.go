@@ -21,7 +21,7 @@ type wsTestServer struct {
 
 func newWSTestServer(t *testing.T) *wsTestServer {
 	t.Helper()
-	return newWSTestServerWith(t, services.NewClientManager(), defaultKeepalive)
+	return newWSTestServerWith(t, services.NewClientManager(services.DefaultWriteTimeout), defaultKeepalive)
 }
 
 func newWSTestServerWith(t *testing.T, cm *services.ClientManager, ka keepalive) *wsTestServer {

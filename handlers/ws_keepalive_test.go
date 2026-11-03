@@ -13,7 +13,7 @@ var shortKeepalive = keepalive{
 }
 
 func TestWS_KeepaliveDropsSilentClient(t *testing.T) {
-	srv := newWSTestServerWith(t, services.NewClientManager(), shortKeepalive)
+	srv := newWSTestServerWith(t, services.NewClientManager(services.DefaultWriteTimeout), shortKeepalive)
 	web := srv.dial(t, "/websocket/web")
 	web.SetPingHandler(func(string) error { return nil })
 	waitFor(t, time.Second, func() bool { return srv.cm.Count() == 1 }, "client not registered")
@@ -28,7 +28,7 @@ func TestWS_KeepaliveDropsSilentClient(t *testing.T) {
 }
 
 func TestWS_KeepaliveKeepsRespondingClient(t *testing.T) {
-	srv := newWSTestServerWith(t, services.NewClientManager(), shortKeepalive)
+	srv := newWSTestServerWith(t, services.NewClientManager(services.DefaultWriteTimeout), shortKeepalive)
 	web := srv.dial(t, "/websocket/web")
 	go func() {
 		for {

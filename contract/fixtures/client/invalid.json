@@ -1,0 +1,7 @@
+[
+  {"name": "unknown type", "message": {"type": "chat", "data": {"message": "hi"}}, "error": "지원하지 않는 메시지 타입: \"chat\""},
+  {"name": "missing type", "message": {"data": {}}, "error": "지원하지 않는 메시지 타입: \"\""},
+  {"name": "not json", "raw": "not-json", "error": "잘못된 메시지 형식"},
+  {"name": "data is invalid json", "raw": "{\"type\":\"command\",\"data\":{]}", "error": "잘못된 메시지 형식"},
+  {"name": "number out of float64 range", "raw": "{\"type\":\"emergency_stop\",\"data\":{\"x\":1e400}}", "error": "잘못된 메시지 형식"}
+]

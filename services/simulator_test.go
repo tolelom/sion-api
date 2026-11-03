@@ -50,7 +50,7 @@ func ticks(sim *AGVSimulator, n int) {
 }
 
 func position(sim *AGVSimulator) models.PositionData {
-	status, _, _, _ := sim.Snapshot()
+	status, _ := sim.Snapshot()
 	return status.Position
 }
 
@@ -71,7 +71,7 @@ func TestSimulator_EmergencyStopHoldsUntilReset(t *testing.T) {
 	}
 	stopped := position(sim)
 	ticks(sim, 20)
-	status, _, _, _ := sim.Snapshot()
+	status, _ := sim.Snapshot()
 	if position(sim) != stopped || status.State != models.StateEmergency || status.Speed != 0 {
 		t.Fatalf("emergency stop must hold: state=%s speed=%v moved=%v", status.State, status.Speed, position(sim) != stopped)
 	}
@@ -79,7 +79,7 @@ func TestSimulator_EmergencyStopHoldsUntilReset(t *testing.T) {
 		t.Fatal(err)
 	}
 	ticks(sim, 3)
-	if status, _, _, _ := sim.Snapshot(); status.State == models.StateEmergency {
+	if status, _ := sim.Snapshot(); status.State == models.StateEmergency {
 		t.Fatal("reset must clear the emergency stop")
 	}
 }
@@ -89,7 +89,7 @@ func TestSimulator_ModeChangeValidatesMode(t *testing.T) {
 	if err := sim.HandleCommand(command(t, models.MessageTypeModeChange, map[string]any{"mode": "manual"})); err != nil {
 		t.Fatal(err)
 	}
-	if status, _, _, _ := sim.Snapshot(); status.Mode != models.ModeManual {
+	if status, _ := sim.Snapshot(); status.Mode != models.ModeManual {
 		t.Fatalf("mode = %s", status.Mode)
 	}
 	if err := sim.HandleCommand(command(t, models.MessageTypeModeChange, map[string]any{"mode": "turbo"})); err == nil {
@@ -114,7 +114,7 @@ func TestSimulator_FollowsCommandedPath(t *testing.T) {
 	if math.Hypot(end.X-last["x"], end.Y-last["y"]) > 0.2 {
 		t.Fatalf("AGV should reach the path end %v, got (%.2f, %.2f)", last, end.X, end.Y)
 	}
-	if status, _, _, _ := sim.Snapshot(); status.Mode != models.ModeManual {
+	if status, _ := sim.Snapshot(); status.Mode != models.ModeManual {
 		t.Fatal("following a commanded path must switch to manual mode")
 	}
 	ticks(sim, 20)
@@ -148,7 +148,7 @@ func TestSimulator_ResetRestoresInitialState(t *testing.T) {
 	if err := sim.HandleCommand(command(t, models.MessageTypeCommand, map[string]any{"action": "reset"})); err != nil {
 		t.Fatal(err)
 	}
-	status, enemies, _, _ := sim.Snapshot()
+	status, enemies := sim.Snapshot()
 	if status.Mode != models.ModeAuto || status.Battery != 100 || status.Position.X != startX || status.Position.Y != startY {
 		t.Fatalf("reset did not restore the start: %+v", status)
 	}
@@ -167,7 +167,7 @@ func TestSimulator_DeadBatteryStopsUntilReset(t *testing.T) {
 	ticks(sim, 30)
 	stopped := position(sim)
 	ticks(sim, 30)
-	status, _, _, _ := sim.Snapshot()
+	status, _ := sim.Snapshot()
 	if status.Battery != 0 || status.Speed != 0 || status.State != models.StateStopped || position(sim) != stopped {
 		t.Fatalf("dead battery must stop the AGV: battery=%d speed=%v state=%s", status.Battery, status.Speed, status.State)
 	}

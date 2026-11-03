@@ -27,7 +27,7 @@ func TestWS_EmergencyStopReachesSimulator(t *testing.T) {
 	readUntilType(t, web, models.MessageTypeMapUpdate, time.Second)
 	sendJSON(t, web, map[string]any{"type": "emergency_stop", "data": map[string]any{"reason": "test"}})
 	waitFor(t, time.Second, func() bool {
-		status, _, _, _ := srv.sim.Snapshot()
+		status, _ := srv.sim.Snapshot()
 		return status.State == models.StateEmergency
 	}, "emergency stop did not reach the simulator")
 }

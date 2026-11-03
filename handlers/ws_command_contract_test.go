@@ -98,7 +98,7 @@ func TestWSCommandContract_PathAtLimit(t *testing.T) {
 		if got := firstErrorMessage(t, web); got != probeError {
 			t.Fatalf("400 points should be accepted, got error %q", got)
 		}
-		status, _, _, _ := srv.sim.Snapshot()
+		status, _ := srv.sim.Snapshot()
 		if status.Mode != models.ModeManual {
 			t.Fatalf("mode = %q, want manual", status.Mode)
 		}
@@ -132,7 +132,7 @@ func TestWSCommandContract_AcceptedWithoutReply(t *testing.T) {
 			if got := firstErrorMessage(t, web); got != probeError {
 				t.Fatalf("command should be accepted silently, got error %q", got)
 			}
-			status, _, _, _ := srv.sim.Snapshot()
+			status, _ := srv.sim.Snapshot()
 			if !tc.check(status) {
 				t.Fatalf("unexpected simulator state: mode=%q state=%q", status.Mode, status.State)
 			}
@@ -152,7 +152,7 @@ func TestWSCommandContract_ResetAfterEmergency(t *testing.T) {
 	if got := firstErrorMessage(t, web); got != probeError {
 		t.Fatalf("reset should be accepted silently, got error %q", got)
 	}
-	status, _, _, _ := srv.sim.Snapshot()
+	status, _ := srv.sim.Snapshot()
 	if status.State == models.StateEmergency || status.Mode != models.ModeAuto || status.Battery != 100 {
 		t.Fatalf("reset did not restore initial state: mode=%q state=%q battery=%d", status.Mode, status.State, status.Battery)
 	}

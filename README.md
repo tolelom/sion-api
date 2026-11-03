@@ -8,25 +8,24 @@ Go 1.25 · Fiber v2 · WebSocket · 데모 https://sion.tolelom.xyz
 
 Sion은 LoL 챔피언 사이온의 궁극기(목표를 향한 직선 돌진)를 Jetson 기반 AGV로 옮긴 프로젝트다. AGV는 맵에서 적을 찾아 장애물을 피해 접근한 뒤 직선 구간에서 가속해 돌진한다.
 
-이 저장소는 대시보드와 AGV 사이의 서버다. 대시보드에 WebSocket으로 AGV 상태를 보내고 명령을 받으며, REST로 A* 경로 탐색을 제공한다.
+이 저장소는 대시보드용 서버다. 대시보드에 WebSocket으로 AGV 상태를 보내고 명령을 받으며, REST로 A* 경로 탐색을 제공한다.
 
-지금은 공개 데모 모드로 동작한다. 실제 AGV 대신 서버 안의 시뮬레이터가 AGV 역할을 하고, 모든 방문자가 시뮬레이터 하나를 같이 조작한다. 데모로 바꾸면서 LLM 해설·채팅, MySQL 로그 저장, 실제 AGV 연결을 뺐다. 이 코드는 git 이력에 남아 있다.
+Sion은 데모 전용으로 동작한다. 서버 안의 시뮬레이터가 AGV 역할을 하고, 모든 방문자가 시뮬레이터 하나를 같이 조작한다. 실제 로봇([sion-robot](https://github.com/tolelom/sion-robot))은 JETANK에서 단독으로 돌며 이 서버와 연결되지 않는다. 데모로 바꾸면서 뺀 LLM 해설·채팅, MySQL 로그 저장, 실제 AGV 연결(`/websocket/agv`)은 git 이력에 남아 있다.
 
 ## 시스템 구성
 
 ```mermaid
 flowchart LR
-    Web["sion-web<br/>대시보드"] -- "WebSocket<br/>상태 수신, 명령 전송" --> API["sion-api<br/>Go Fiber"]
+    Web["sion-web<br/>대시보드"] -- "WebSocket<br/>상태 수신, 명령 전송" --> API["sion-api<br/>Go Fiber + AGV 시뮬레이터"]
     Web -- "REST<br/>A* 경로 요청" --> API
-    API -. "WebSocket<br/>원래 구성" .-> Robot["sion-robot<br/>Jetson AGV 제어"]
-    API -- "데모" --> Sim["AGV 시뮬레이터"]
+    Robot["sion-robot<br/>JETANK 단독 실행"]
 ```
 
 | 저장소 | 역할 |
 |---|---|
 | [sion-web](https://github.com/tolelom/sion-web) | 관제 대시보드 |
-| sion-api | A* 경로 탐색, 데모용 AGV 시뮬레이터. 원래 구성에서는 AGV와 대시보드 사이 상태 중계(이 저장소) |
-| [sion-robot](https://github.com/tolelom/sion-robot) | AGV 제어. 경로 계획, 경로 추종, 적 돌진 |
+| sion-api | 대시보드용 WebSocket·REST 서버. 내장 시뮬레이터가 AGV 역할을 한다(이 저장소) |
+| [sion-robot](https://github.com/tolelom/sion-robot) | JETANK 제어. 경로 계획, 경로 추종, 적 돌진. 서버와 연결되지 않는다 |
 
 ## 기능
 

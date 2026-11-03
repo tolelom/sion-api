@@ -1,8 +1,9 @@
 package main
 
 import (
-	"bytes"
+	"bufio"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -81,7 +82,20 @@ func TestApp_Health(t *testing.T) {
 
 func TestApp_RejectsBodiesOver64KB(t *testing.T) {
 	base := listen(t, newTestApp(t))
-	resp, err := http.Post("http://"+base+"/api/pathfinding", "application/json", bytes.NewReader(bytes.Repeat([]byte("x"), 64*1024+1)))
+	// Send only the headers. The server rejects on Content-Length alone; writing
+	// the oversized body raced with the server closing the connection and made
+	// the client fail with "connection reset by peer" on CI.
+	conn, err := net.Dial("tcp", base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	req := fmt.Sprintf("POST /api/pathfinding HTTP/1.1\r\nHost: %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n", base, 64*1024+1)
+	if _, err := conn.Write([]byte(req)); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

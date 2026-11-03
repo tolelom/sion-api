@@ -70,10 +70,10 @@ type pqItem struct {
 
 type priorityQueue []*pqItem
 
-func (pq priorityQueue) Len() int            { return len(pq) }
-func (pq priorityQueue) Less(i, j int) bool  { return pq[i].f < pq[j].f }
-func (pq priorityQueue) Swap(i, j int)       { pq[i], pq[j] = pq[j], pq[i] }
-func (pq *priorityQueue) Push(x any) { *pq = append(*pq, x.(*pqItem)) }
+func (pq priorityQueue) Len() int           { return len(pq) }
+func (pq priorityQueue) Less(i, j int) bool { return pq[i].f < pq[j].f }
+func (pq priorityQueue) Swap(i, j int)      { pq[i], pq[j] = pq[j], pq[i] }
+func (pq *priorityQueue) Push(x any)        { *pq = append(*pq, x.(*pqItem)) }
 func (pq *priorityQueue) Pop() any {
 	old := *pq
 	n := len(old)

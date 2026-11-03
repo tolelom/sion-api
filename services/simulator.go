@@ -13,16 +13,36 @@ import (
 )
 
 const (
-	MapSize           = 20
-	startX            = 2.0
-	startY            = 2.0
-	maxPathPoints     = 400
-	batteryDrainTicks = 5
-	obstacleCount     = 25
-	enemyCount        = 5
-	detectionRange    = 10.0
-	attackRange       = 2.0
+	MapSize        = 20
+	startX         = 2.0
+	startY         = 2.0
+	maxPathPoints  = 400
+	obstacleCount  = 25
+	enemyCount     = 5
+	detectionRange = 10.0
+	attackRange    = 2.0
+
+	agvID   = "sion-001"
+	agvName = "사이온"
+
+	defaultUpdateInterval = 500 * time.Millisecond
+	// stepPerSpeed는 속도 1일 때 한 틱에 움직이는 거리다. 기본 틱 0.5초에 맞춘 값이다.
+	stepPerSpeed = 0.5
+	cruiseSpeed  = 1.0 // 수색·경로 추종 속도
+	chargeSpeed  = 2.5 // 표적을 향해 돌진하는 속도
+	// turnChance는 수색 중 매 틱 방향을 무작위로 바꿀 확률이다.
+	turnChance = 0.1
+
+	attackChance = 0.2
+	attackDamage = 10
+	minEnemyHP   = 20
+	maxEnemyHP   = 100
+
+	fullBattery       = 100
+	batteryDrainTicks = 5 // 움직이는 동안 이 틱마다 배터리 1 감소
 )
+
+var enemyNames = []string{"아리", "야스오", "지글스", "룩스", "제드"}
 
 type AGVSimulator struct {
 	mu        sync.RWMutex
@@ -44,7 +64,7 @@ type AGVSimulator struct {
 
 func NewAGVSimulator(broadcast func(models.WebSocketMessage), hasListeners func() bool) *AGVSimulator {
 	sim := &AGVSimulator{
-		updateInterval: 500 * time.Millisecond,
+		updateInterval: defaultUpdateInterval,
 		broadcastFunc:  broadcast,
 		hasListeners:   hasListeners,
 	}
@@ -55,12 +75,12 @@ func NewAGVSimulator(broadcast func(models.WebSocketMessage), hasListeners func(
 
 func initialStatus() *models.AGVStatus {
 	return &models.AGVStatus{
-		ID:       "sion-001",
-		Name:     "사이온",
+		ID:       agvID,
+		Name:     agvName,
 		Position: models.PositionData{X: startX, Y: startY},
 		Mode:     models.ModeAuto,
 		State:    models.StateIdle,
-		Battery:  100,
+		Battery:  fullBattery,
 	}
 }
 
@@ -174,7 +194,7 @@ func (sim *AGVSimulator) followPathLocked() {
 		sim.status.State = models.StateIdle
 		return
 	}
-	sim.status.Speed = 1.0
+	sim.status.Speed = cruiseSpeed
 	sim.status.State = models.StateMoving
 	next := sim.path[0]
 	if sim.moveTowardsLocked(next.X, next.Y) {
@@ -188,14 +208,14 @@ func (sim *AGVSimulator) huntLocked() {
 	if len(detected) == 0 {
 		sim.status.TargetEnemy = nil
 		sim.status.State = models.StateSearching
-		sim.status.Speed = 1.0
+		sim.status.Speed = cruiseSpeed
 		sim.randomWalkLocked()
 		return
 	}
 	target := lowestHP(detected)
 	sim.status.TargetEnemy = &target
 	sim.status.State = models.StateCharging
-	sim.status.Speed = 2.5
+	sim.status.Speed = chargeSpeed
 	sim.moveTowardsLocked(target.Position.X, target.Position.Y)
 	if sim.distanceToLocked(target.Position.X, target.Position.Y) < attackRange {
 		sim.attackTargetLocked()
@@ -303,7 +323,7 @@ func (sim *AGVSimulator) moveTowardsLocked(targetX, targetY float64) bool {
 	dx := targetX - sim.status.Position.X
 	dy := targetY - sim.status.Position.Y
 	dist := math.Hypot(dx, dy)
-	stepLen := sim.status.Speed * 0.5
+	stepLen := sim.stepLengthLocked()
 	if dist <= stepLen {
 		sim.status.Position.X, sim.status.Position.Y = targetX, targetY
 		sim.clampPositionLocked()
@@ -317,10 +337,10 @@ func (sim *AGVSimulator) moveTowardsLocked(targetX, targetY float64) bool {
 }
 
 func (sim *AGVSimulator) randomWalkLocked() {
-	if rand.Float64() < 0.1 {
+	if rand.Float64() < turnChance {
 		sim.status.Position.Angle = rand.Float64() * 2 * math.Pi
 	}
-	stepLen := sim.status.Speed * 0.5
+	stepLen := sim.stepLengthLocked()
 	nx := sim.status.Position.X + math.Cos(sim.status.Position.Angle)*stepLen
 	ny := sim.status.Position.Y + math.Sin(sim.status.Position.Angle)*stepLen
 	if nx < 0 || ny < 0 || nx > MapSize || ny > MapSize || sim.isObstacleLocked(nx, ny) {
@@ -341,14 +361,14 @@ func (sim *AGVSimulator) isObstacleLocked(x, y float64) bool {
 }
 
 func (sim *AGVSimulator) attackTargetLocked() {
-	if sim.status.TargetEnemy == nil || rand.Float64() >= 0.2 {
+	if sim.status.TargetEnemy == nil || rand.Float64() >= attackChance {
 		return
 	}
 	for i := range sim.enemies {
 		if sim.enemies[i].ID != sim.status.TargetEnemy.ID {
 			continue
 		}
-		sim.enemies[i].HP = max(sim.enemies[i].HP-10, 0)
+		sim.enemies[i].HP = max(sim.enemies[i].HP-attackDamage, 0)
 		sim.status.TargetEnemy.HP = sim.enemies[i].HP
 		if sim.enemies[i].HP == 0 {
 			sim.status.TargetEnemy = nil
@@ -372,6 +392,10 @@ func (sim *AGVSimulator) consumeBatteryLocked() {
 func (sim *AGVSimulator) clampPositionLocked() {
 	sim.status.Position.X = math.Min(math.Max(sim.status.Position.X, 0), MapSize)
 	sim.status.Position.Y = math.Min(math.Max(sim.status.Position.Y, 0), MapSize)
+}
+
+func (sim *AGVSimulator) stepLengthLocked() float64 {
+	return sim.status.Speed * stepPerSpeed
 }
 
 func (sim *AGVSimulator) distanceToLocked(x, y float64) float64 {
@@ -444,7 +468,6 @@ func generateObstacles(count int) []models.Cell {
 }
 
 func generateEnemies(count int, obstacles []models.Cell) []models.Enemy {
-	names := []string{"아리", "야스오", "지글스", "룩스", "제드"}
 	blocked := map[models.Cell]bool{}
 	for _, o := range obstacles {
 		blocked[o] = true
@@ -457,8 +480,8 @@ func generateEnemies(count int, obstacles []models.Cell) []models.Enemy {
 		}
 		enemies = append(enemies, models.Enemy{
 			ID:       fmt.Sprintf("enemy-%d", len(enemies)+1),
-			Name:     names[rand.Intn(len(names))],
-			HP:       rand.Intn(81) + 20,
+			Name:     enemyNames[rand.Intn(len(enemyNames))],
+			HP:       minEnemyHP + rand.Intn(maxEnemyHP-minEnemyHP+1),
 			Position: models.PositionData{X: x, Y: y},
 		})
 	}

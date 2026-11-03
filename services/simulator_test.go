@@ -149,7 +149,7 @@ func TestSimulator_ResetRestoresInitialState(t *testing.T) {
 		t.Fatal(err)
 	}
 	status, enemies := sim.Snapshot()
-	if status.Mode != models.ModeAuto || status.Battery != 100 || status.Position.X != startX || status.Position.Y != startY {
+	if status.Mode != models.ModeAuto || status.Battery != fullBattery || status.Position.X != startX || status.Position.Y != startY {
 		t.Fatalf("reset did not restore the start: %+v", status)
 	}
 	for _, e := range enemies {

@@ -21,7 +21,7 @@ const testOrigin = "http://allowed.example"
 
 func newTestApp(t *testing.T) *fiber.App {
 	t.Helper()
-	cm := services.NewClientManager()
+	cm := services.NewClientManager(services.DefaultWriteTimeout)
 	sim := services.NewAGVSimulator(func(msg models.WebSocketMessage) { cm.BroadcastJSON(msg) }, func() bool { return cm.Count() > 0 })
 	return newApp(cm, sim, testOrigin+", http://second.example")
 }

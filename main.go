@@ -22,7 +22,7 @@ import (
 const shutdownTimeout = 5 * time.Second
 
 func main() {
-	cm := services.NewClientManager()
+	cm := services.NewClientManager(services.DefaultWriteTimeout)
 	sim := services.NewAGVSimulator(func(msg models.WebSocketMessage) { cm.BroadcastJSON(msg) }, func() bool { return cm.Count() > 0 })
 	sim.Start()
 	defer sim.Stop()

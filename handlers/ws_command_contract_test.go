@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"sion-backend/contract"
 	"sion-backend/models"
 	"testing"
 	"time"
@@ -9,10 +10,34 @@ import (
 	"github.com/fasthttp/websocket"
 )
 
-// 명령 메시지의 경계 입력별 응답을 고정한다. 오류 문구는 클라이언트에 그대로 노출되는 계약이다.
-// 성공한 명령은 응답이 없으므로, 뒤이어 보낸 probe의 오류가 첫 오류로 오는지로 확인한다.
-
+// 받아들인 명령에는 응답이 없으므로, 뒤이어 보낸 probe의 오류가 첫 오류로 오는지로 확인한다.
 const probeError = `지원하지 않는 메시지 타입: "probe"`
+
+var commandFixtureFiles = []string{"emergency_stop", "mode_change", "command"}
+
+type acceptedCommand struct {
+	Name    string          `json:"name"`
+	Message json.RawMessage `json:"message"`
+	Then    struct {
+		Mode    *string `json:"mode"`
+		State   *string `json:"state"`
+		Battery *int    `json:"battery"`
+	} `json:"then"`
+}
+
+type rejectedCommand struct {
+	Name    string          `json:"name"`
+	Message json.RawMessage `json:"message"`
+	Raw     string          `json:"raw"`
+	Error   string          `json:"error"`
+}
+
+func (r rejectedCommand) wire() string {
+	if r.Message != nil {
+		return string(r.Message)
+	}
+	return r.Raw
+}
 
 func dialReady(t *testing.T) (*wsTestServer, *websocket.Conn) {
 	t.Helper()
@@ -31,112 +56,70 @@ func sendRaw(t *testing.T, c *websocket.Conn, raw string) {
 
 func firstErrorMessage(t *testing.T, c *websocket.Conn) string {
 	t.Helper()
-	msg := readUntilType(t, c, models.MessageTypeError, time.Second)
-	data, ok := msg.Data.(map[string]any)
-	if !ok {
-		t.Fatalf("error data is not an object: %#v", msg.Data)
+	_, raw := readRawUntilType(t, c, models.MessageTypeError, time.Second)
+	contract.Validate(t, "ErrorMessage", raw)
+	var msg struct {
+		Data models.ErrorData `json:"data"`
 	}
-	text, _ := data["message"].(string)
-	return text
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		t.Fatal(err)
+	}
+	return msg.Data.Message
 }
 
-func TestWSCommandContract_ErrorMessages(t *testing.T) {
-	cases := []struct {
-		name string
-		raw  string
-		want string
-	}{
-		{"mode_change with null data", `{"type":"mode_change","data":null}`, `알 수 없는 모드: ""`},
-		{"mode_change without data key", `{"type":"mode_change"}`, `알 수 없는 모드: ""`},
-		{"mode_change with unknown mode", `{"type":"mode_change","data":{"mode":"turbo"}}`, `알 수 없는 모드: "turbo"`},
-		{"mode_change with string data", `{"type":"mode_change","data":"manual"}`, "잘못된 명령 형식"},
-		{"mode_change with wrong field type", `{"type":"mode_change","data":{"mode":5}}`, "잘못된 명령 형식"},
-		{"command with null data", `{"type":"command","data":null}`, "경로가 비어 있습니다"},
-		{"command without data key", `{"type":"command"}`, "경로가 비어 있습니다"},
-		{"command with empty path", `{"type":"command","data":{"path":[]}}`, "경로가 비어 있습니다"},
-		{"command with path off the map", `{"type":"command","data":{"path":[{"x":21,"y":1}]}}`, "경로가 맵을 벗어납니다"},
-		{"command with negative point", `{"type":"command","data":{"path":[{"x":-0.5,"y":1}]}}`, "경로가 맵을 벗어납니다"},
-		{"command with array data", `{"type":"command","data":[1,2]}`, "잘못된 명령 형식"},
-		{"unknown type", `{"type":"chat","data":{"message":"hi"}}`, `지원하지 않는 메시지 타입: "chat"`},
-		{"missing type", `{"data":{}}`, `지원하지 않는 메시지 타입: ""`},
-		{"not json", `not-json`, "잘못된 메시지 형식"},
-		{"data is invalid json", `{"type":"command","data":{]}`, "잘못된 메시지 형식"},
-		{"number out of float64 range in data", `{"type":"emergency_stop","data":{"x":1e400}}`, "잘못된 메시지 형식"},
+func expectRejected(t *testing.T, r rejectedCommand) {
+	t.Helper()
+	if r.Message != nil {
+		if err := contract.Check(t, "ClientCommand", r.Message); err == nil {
+			t.Fatalf("rejected fixture %s must violate the ClientCommand schema", r.Message)
+		}
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			_, web := dialReady(t)
-			sendRaw(t, web, tc.raw)
-			if got := firstErrorMessage(t, web); got != tc.want {
-				t.Fatalf("error message = %q, want %q", got, tc.want)
-			}
-		})
+	_, web := dialReady(t)
+	sendRaw(t, web, r.wire())
+	if got := firstErrorMessage(t, web); got != r.Error {
+		t.Fatalf("error message = %q, want %q", got, r.Error)
 	}
 }
 
-func TestWSCommandContract_PathAtLimit(t *testing.T) {
-	path := func(n int) string {
-		points := make([]map[string]float64, n)
-		for i := range points {
-			points[i] = map[string]float64{"x": 1, "y": 1}
+func TestWSCommandContract_Fixtures(t *testing.T) {
+	for _, file := range commandFixtureFiles {
+		var fixtures struct {
+			Accepted []acceptedCommand `json:"accepted"`
+			Rejected []rejectedCommand `json:"rejected"`
 		}
-		raw, _ := json.Marshal(map[string]any{"type": "command", "data": map[string]any{"path": points}})
-		return string(raw)
-	}
+		contract.LoadJSON(t, "fixtures/client/"+file+".json", &fixtures)
+		if len(fixtures.Accepted) == 0 {
+			t.Fatalf("%s.json has no accepted example", file)
+		}
 
-	t.Run("401 points are rejected", func(t *testing.T) {
-		_, web := dialReady(t)
-		sendRaw(t, web, path(401))
-		if got := firstErrorMessage(t, web); got != "경로는 최대 400개 지점까지입니다" {
-			t.Fatalf("error message = %q", got)
+		for _, a := range fixtures.Accepted {
+			t.Run(file+"/accepted/"+a.Name, func(t *testing.T) {
+				contract.Validate(t, "ClientCommand", a.Message)
+				srv, web := dialReady(t)
+				sendRaw(t, web, string(a.Message))
+				sendRaw(t, web, `{"type":"probe"}`)
+				if got := firstErrorMessage(t, web); got != probeError {
+					t.Fatalf("command should be accepted silently, got error %q", got)
+				}
+				status, _ := srv.sim.Snapshot()
+				if a.Then.Mode != nil && status.Mode != *a.Then.Mode ||
+					a.Then.State != nil && status.State != *a.Then.State ||
+					a.Then.Battery != nil && status.Battery != *a.Then.Battery {
+					t.Fatalf("simulator status mode=%q state=%q battery=%d does not match %+v", status.Mode, status.State, status.Battery, a.Then)
+				}
+			})
 		}
-	})
-	t.Run("400 points are accepted and switch to manual", func(t *testing.T) {
-		srv, web := dialReady(t)
-		sendRaw(t, web, path(400))
-		sendRaw(t, web, `{"type":"probe"}`)
-		if got := firstErrorMessage(t, web); got != probeError {
-			t.Fatalf("400 points should be accepted, got error %q", got)
+		for _, r := range fixtures.Rejected {
+			t.Run(file+"/rejected/"+r.Name, func(t *testing.T) { expectRejected(t, r) })
 		}
-		status, _ := srv.sim.Snapshot()
-		if status.Mode != models.ModeManual {
-			t.Fatalf("mode = %q, want manual", status.Mode)
-		}
-	})
+	}
 }
 
-func TestWSCommandContract_AcceptedWithoutReply(t *testing.T) {
-	cases := []struct {
-		name  string
-		raw   string
-		check func(models.AGVStatus) bool
-	}{
-		{"emergency_stop with null data", `{"type":"emergency_stop","data":null}`,
-			func(s models.AGVStatus) bool { return s.State == models.StateEmergency }},
-		{"emergency_stop without data key", `{"type":"emergency_stop"}`,
-			func(s models.AGVStatus) bool { return s.State == models.StateEmergency }},
-		{"emergency_stop ignores data shape", `{"type":"emergency_stop","data":"anything"}`,
-			func(s models.AGVStatus) bool { return s.State == models.StateEmergency }},
-		{"mode_change to manual", `{"type":"mode_change","data":{"mode":"manual"}}`,
-			func(s models.AGVStatus) bool { return s.Mode == models.ModeManual }},
-		{"mode_change ignores extra fields", `{"type":"mode_change","data":{"mode":"manual","extra":1}}`,
-			func(s models.AGVStatus) bool { return s.Mode == models.ModeManual }},
-		{"command path on the map edge", `{"type":"command","data":{"path":[{"x":20,"y":0}]}}`,
-			func(s models.AGVStatus) bool { return s.Mode == models.ModeManual }},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			srv, web := dialReady(t)
-			sendRaw(t, web, tc.raw)
-			sendRaw(t, web, `{"type":"probe"}`)
-			if got := firstErrorMessage(t, web); got != probeError {
-				t.Fatalf("command should be accepted silently, got error %q", got)
-			}
-			status, _ := srv.sim.Snapshot()
-			if !tc.check(status) {
-				t.Fatalf("unexpected simulator state: mode=%q state=%q", status.Mode, status.State)
-			}
-		})
+func TestWSCommandContract_InvalidMessages(t *testing.T) {
+	var fixtures []rejectedCommand
+	contract.LoadJSON(t, "fixtures/client/invalid.json", &fixtures)
+	for _, r := range fixtures {
+		t.Run(r.Name, func(t *testing.T) { expectRejected(t, r) })
 	}
 }
 

@@ -75,13 +75,13 @@ func (sim *AGVSimulator) IsRunning() bool {
 	return sim.running.Load()
 }
 
-func (sim *AGVSimulator) Snapshot() (status models.AGVStatus, enemies []models.Enemy, mapW, mapH float64) {
+// Snapshot은 현재 AGV 상태와 적 목록의 복사본을 돌려준다.
+func (sim *AGVSimulator) Snapshot() (models.AGVStatus, []models.Enemy) {
 	sim.mu.RLock()
 	defer sim.mu.RUnlock()
-	status = *sim.status
-	enemies = make([]models.Enemy, len(sim.enemies))
+	enemies := make([]models.Enemy, len(sim.enemies))
 	copy(enemies, sim.enemies)
-	return status, enemies, MapSize, MapSize
+	return *sim.status, enemies
 }
 
 func (sim *AGVSimulator) MapUpdateMessage() models.WebSocketMessage {

@@ -93,7 +93,6 @@ func TestFindPath_OutOfBounds(t *testing.T) {
 
 func TestFindPath_WallAvoidance(t *testing.T) {
 	g := NewGrid(5, 5)
-	// 세로 벽 (x=2, y=0..3)을 두고 (0,2)→(4,2) 우회
 	for y := 0; y <= 3; y++ {
 		g.AddObstacle(2, y)
 	}
@@ -124,7 +123,6 @@ func TestFindPath_Unreachable(t *testing.T) {
 }
 
 func TestFindPath_FloatInputNormalized(t *testing.T) {
-	// 부동소수점 좌표가 들어와도 셀 단위로 정규화되어 동작해야 한다.
 	g := NewGrid(5, 5)
 	path := g.FindPath(Point{X: 0.4, Y: 0.6}, Point{X: 4.2, Y: 4.9})
 	if len(path) == 0 {
@@ -138,7 +136,6 @@ func TestFindPath_FloatInputNormalized(t *testing.T) {
 func TestFindPath_LargeGrid(t *testing.T) {
 	const N = 100
 	g := NewGrid(N, N)
-	// 중앙에 세로 벽 하나 (틈 한 칸)
 	for y := 0; y < N; y++ {
 		if y == N/2 {
 			continue

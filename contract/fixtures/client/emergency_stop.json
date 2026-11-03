@@ -1,0 +1,9 @@
+{
+  "accepted": [
+    {"name": "dashboard sends a reason", "message": {"type": "emergency_stop", "data": {"reason": "User requested emergency stop"}}, "then": {"state": "emergency"}},
+    {"name": "null data", "message": {"type": "emergency_stop", "data": null}, "then": {"state": "emergency"}},
+    {"name": "no data key", "message": {"type": "emergency_stop"}, "then": {"state": "emergency"}},
+    {"name": "data shape is ignored", "message": {"type": "emergency_stop", "data": "anything"}, "then": {"state": "emergency"}}
+  ],
+  "rejected": []
+}

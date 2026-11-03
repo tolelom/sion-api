@@ -1,0 +1,4 @@
+[
+  {"name": "obstacles on the 20x20 map", "message": {"type": "map_update", "data": {"obstacles": [{"x": 0, "y": 19}, {"x": 9, "y": 9}, {"x": 13, "y": 4}], "width": 20, "height": 20}, "timestamp": 1760572800000}},
+  {"name": "map without obstacles", "message": {"type": "map_update", "data": {"obstacles": [], "width": 20, "height": 20}, "timestamp": 1760572800000}}
+]

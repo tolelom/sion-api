@@ -6,6 +6,7 @@ require (
 	github.com/fasthttp/websocket v1.5.3
 	github.com/gofiber/fiber/v2 v2.52.13
 	github.com/gofiber/websocket/v2 v2.2.1
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 )
 
 require (
@@ -21,4 +22,5 @@ require (
 	github.com/valyala/fasthttp v1.51.0 // indirect
 	github.com/valyala/tcplisten v1.0.0 // indirect
 	golang.org/x/sys v0.28.0 // indirect
+	golang.org/x/text v0.14.0 // indirect
 )

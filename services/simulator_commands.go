@@ -17,9 +17,7 @@ func (sim *AGVSimulator) HandleCommand(msg models.WebSocketMessage) error {
 		sim.mu.Unlock()
 		return nil
 	case models.MessageTypeModeChange:
-		var cmd struct {
-			Mode string `json:"mode"`
-		}
+		var cmd models.ModeChangeData
 		if err := decodeData(msg.Data, &cmd); err != nil {
 			return err
 		}
@@ -39,10 +37,7 @@ func (sim *AGVSimulator) HandleCommand(msg models.WebSocketMessage) error {
 }
 
 func (sim *AGVSimulator) handleMoveCommand(data any) error {
-	var cmd struct {
-		Action string            `json:"action"`
-		Path   []models.Waypoint `json:"path"`
-	}
+	var cmd models.MoveCommandData
 	if err := decodeData(data, &cmd); err != nil {
 		return err
 	}

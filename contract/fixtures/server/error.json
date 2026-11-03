@@ -1,0 +1,4 @@
+[
+  {"name": "rate limited", "message": {"type": "error", "data": {"message": "요청이 너무 많습니다. 잠시 후 다시 시도하세요"}, "timestamp": 1760572800000}},
+  {"name": "unsupported message type", "message": {"type": "error", "data": {"message": "지원하지 않는 메시지 타입: \"chat\""}, "timestamp": 1760572800000}}
+]

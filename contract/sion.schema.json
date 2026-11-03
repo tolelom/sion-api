@@ -1,0 +1,293 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/tolelom/sion-api/main/contract/sion.schema.json",
+  "title": "SionContract",
+  "description": "sion-web와 sion-api 사이의 계약. WebSocket /websocket/web 메시지와 POST /api/pathfinding 본문.",
+  "anyOf": [
+    { "$ref": "#/$defs/ServerMessage" },
+    { "$ref": "#/$defs/ClientCommand" },
+    { "$ref": "#/$defs/PathfindingRequest" },
+    { "$ref": "#/$defs/PathfindingResponse" }
+  ],
+  "$defs": {
+    "Timestamp": {
+      "description": "Unix 시각(밀리초).",
+      "type": "integer"
+    },
+    "AgvMode": {
+      "type": "string",
+      "enum": ["auto", "manual"]
+    },
+    "AgvState": {
+      "type": "string",
+      "enum": ["idle", "moving", "charging", "searching", "stopped", "emergency"]
+    },
+    "Cell": {
+      "type": "object",
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "integer" },
+        "y": { "type": "integer" }
+      },
+      "additionalProperties": false
+    },
+    "Waypoint": {
+      "type": "object",
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" }
+      },
+      "additionalProperties": false
+    },
+    "Enemy": {
+      "type": "object",
+      "required": ["id", "name", "hp", "x", "y"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "hp": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "x": { "type": "number" },
+        "y": { "type": "number" }
+      },
+      "additionalProperties": false
+    },
+
+    "ServerMessage": {
+      "description": "서버가 대시보드로 보내는 메시지.",
+      "oneOf": [
+        { "$ref": "#/$defs/StatusMessage" },
+        { "$ref": "#/$defs/PositionMessage" },
+        { "$ref": "#/$defs/MapUpdateMessage" },
+        { "$ref": "#/$defs/SystemInfoMessage" },
+        { "$ref": "#/$defs/ErrorMessage" }
+      ]
+    },
+    "StatusMessage": {
+      "type": "object",
+      "required": ["type", "data", "timestamp"],
+      "properties": {
+        "type": { "const": "status" },
+        "data": { "$ref": "#/$defs/StatusPayload" },
+        "timestamp": { "$ref": "#/$defs/Timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "StatusPayload": {
+      "type": "object",
+      "required": ["battery", "speed", "mode", "state", "detected_enemies", "target_enemy"],
+      "properties": {
+        "battery": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "speed": { "type": "number", "minimum": 0 },
+        "mode": { "$ref": "#/$defs/AgvMode" },
+        "state": { "$ref": "#/$defs/AgvState" },
+        "detected_enemies": { "type": "array", "items": { "$ref": "#/$defs/Enemy" } },
+        "target_enemy": { "anyOf": [{ "$ref": "#/$defs/Enemy" }, { "type": "null" }] }
+      },
+      "additionalProperties": false
+    },
+    "PositionMessage": {
+      "type": "object",
+      "required": ["type", "data", "timestamp"],
+      "properties": {
+        "type": { "const": "position" },
+        "data": { "$ref": "#/$defs/PositionPayload" },
+        "timestamp": { "$ref": "#/$defs/Timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "PositionPayload": {
+      "type": "object",
+      "required": ["x", "y", "angle", "timestamp"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "angle": { "description": "라디안.", "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "MapUpdateMessage": {
+      "description": "접속 직후 한 번 보낸다.",
+      "type": "object",
+      "required": ["type", "data", "timestamp"],
+      "properties": {
+        "type": { "const": "map_update" },
+        "data": { "$ref": "#/$defs/MapUpdatePayload" },
+        "timestamp": { "$ref": "#/$defs/Timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "MapUpdatePayload": {
+      "type": "object",
+      "required": ["obstacles", "width", "height"],
+      "properties": {
+        "obstacles": { "type": "array", "items": { "$ref": "#/$defs/Cell" } },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "SystemInfoMessage": {
+      "description": "접속 직후 map_update보다 먼저 한 번 보낸다.",
+      "type": "object",
+      "required": ["type", "data", "timestamp"],
+      "properties": {
+        "type": { "const": "system_info" },
+        "data": { "$ref": "#/$defs/SystemInfoPayload" },
+        "timestamp": { "$ref": "#/$defs/Timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "SystemInfoPayload": {
+      "type": "object",
+      "required": ["agv_connected", "server_time"],
+      "properties": {
+        "agv_connected": { "description": "시뮬레이터가 늘 AGV 역할을 하므로 true다.", "type": "boolean" },
+        "server_time": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "ErrorMessage": {
+      "description": "명령을 받아들이지 않았을 때 그 연결에만 보낸다. 받아들인 명령에는 답하지 않는다.",
+      "type": "object",
+      "required": ["type", "data", "timestamp"],
+      "properties": {
+        "type": { "const": "error" },
+        "data": { "$ref": "#/$defs/ErrorPayload" },
+        "timestamp": { "$ref": "#/$defs/Timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "ErrorPayload": {
+      "type": "object",
+      "required": ["message"],
+      "properties": {
+        "message": { "description": "사용자에게 그대로 보여 주는 한국어 문구.", "type": "string" }
+      },
+      "additionalProperties": false
+    },
+
+    "ClientCommand": {
+      "description": "대시보드가 서버로 보내는 명령. 서버는 모르는 필드를 무시한다.",
+      "oneOf": [
+        { "$ref": "#/$defs/EmergencyStopCommand" },
+        { "$ref": "#/$defs/ModeChangeCommand" },
+        { "$ref": "#/$defs/MoveCommand" }
+      ]
+    },
+    "EmergencyStopCommand": {
+      "description": "초기화 전까지 시뮬레이터를 멈춘다.",
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "const": "emergency_stop" },
+        "data": { "description": "서버는 내용을 보지 않는다. 대시보드는 {reason}을 보낸다." }
+      }
+    },
+    "ModeChangeCommand": {
+      "type": "object",
+      "required": ["type", "data"],
+      "properties": {
+        "type": { "const": "mode_change" },
+        "data": {
+          "type": "object",
+          "required": ["mode"],
+          "properties": {
+            "mode": { "$ref": "#/$defs/AgvMode" }
+          }
+        }
+      }
+    },
+    "MoveCommand": {
+      "type": "object",
+      "required": ["type", "data"],
+      "properties": {
+        "type": { "const": "command" },
+        "data": {
+          "anyOf": [
+            { "$ref": "#/$defs/ResetCommandData" },
+            { "$ref": "#/$defs/PathCommandData" }
+          ]
+        }
+      }
+    },
+    "ResetCommandData": {
+      "description": "시뮬레이터를 처음 상태로 되돌린다. 긴급 정지와 방전도 푼다.",
+      "type": "object",
+      "required": ["action"],
+      "properties": {
+        "action": { "const": "reset" }
+      }
+    },
+    "PathCommandData": {
+      "description": "수동 모드로 바꾸고 경로를 따라가게 한다. 긴급 정지나 방전 중에는 거절한다.",
+      "type": "object",
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 400,
+          "items": { "$ref": "#/$defs/SimulatorPoint" }
+        },
+        "target_x": { "description": "서버는 보지 않는다.", "type": "number" },
+        "target_y": { "description": "서버는 보지 않는다.", "type": "number" },
+        "mode": { "description": "서버는 보지 않는다.", "const": "manual" }
+      }
+    },
+    "SimulatorPoint": {
+      "description": "시뮬레이터 맵(20x20) 안의 좌표. 경계값 20도 맵 안이다.",
+      "type": "object",
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "number", "minimum": 0, "maximum": 20 },
+        "y": { "type": "number", "minimum": 0, "maximum": 20 }
+      }
+    },
+
+    "PathfindingRequest": {
+      "description": "POST /api/pathfinding 요청 본문. 좌표는 내림한 셀로 계산한다.",
+      "type": "object",
+      "required": ["start", "goal", "map_width", "map_height"],
+      "properties": {
+        "start": { "$ref": "#/$defs/Waypoint" },
+        "goal": { "$ref": "#/$defs/Waypoint" },
+        "map_width": { "type": "integer", "minimum": 1, "maximum": 200 },
+        "map_height": { "type": "integer", "minimum": 1, "maximum": 200 },
+        "obstacles": { "type": "array", "items": { "$ref": "#/$defs/Cell" } }
+      }
+    },
+    "PathfindingResponse": {
+      "description": "POST /api/pathfinding 응답 본문. 요청 형식이나 맵 크기가 잘못되면 HTTP 400, 경로가 없으면 HTTP 200에 success=false.",
+      "oneOf": [
+        { "$ref": "#/$defs/PathfindingSuccess" },
+        { "$ref": "#/$defs/PathfindingFailure" }
+      ]
+    },
+    "PathfindingSuccess": {
+      "type": "object",
+      "required": ["success", "path", "message"],
+      "properties": {
+        "success": { "const": true },
+        "path": {
+          "description": "시작 셀부터 목표 셀까지 8방향으로 이어지는 셀 좌표.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/Waypoint" }
+        },
+        "message": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "PathfindingFailure": {
+      "type": "object",
+      "required": ["success", "message"],
+      "properties": {
+        "success": { "const": false },
+        "message": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

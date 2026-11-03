@@ -23,9 +23,9 @@ func newKeepalive(pongWait, pingPeriod, pingWriteTimeout time.Duration) keepaliv
 
 var defaultKeepalive = newKeepalive(60*time.Second, 54*time.Second, 10*time.Second)
 
-func (k keepalive) start(cm *services.ClientManager, c *websocket.Conn, label string) (stop func()) {
+func (k keepalive) start(cm *services.ClientManager, c *websocket.Conn) (stop func()) {
 	if err := c.SetReadDeadline(time.Now().Add(k.pongWait)); err != nil {
-		log.Printf("[WARN] %s SetReadDeadline 실패: %v", label, err)
+		log.Printf("[WARN] SetReadDeadline 실패: %v", err)
 	}
 	c.SetPongHandler(func(string) error {
 		return c.SetReadDeadline(time.Now().Add(k.pongWait))
@@ -41,7 +41,7 @@ func (k keepalive) start(cm *services.ClientManager, c *websocket.Conn, label st
 			select {
 			case <-ticker.C:
 				if err := cm.WriteControl(c, websocket.PingMessage, nil, time.Now().Add(k.pingWriteTimeout)); err != nil {
-					log.Printf("[INFO] %s ping 실패, keepalive 종료: %v", label, err)
+					log.Printf("[INFO] ping 실패, keepalive 종료: %v", err)
 					return
 				}
 			case <-stopCh:

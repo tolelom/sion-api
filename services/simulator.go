@@ -100,10 +100,10 @@ func (sim *AGVSimulator) MapUpdateMessage() models.WebSocketMessage {
 	sim.mu.RUnlock()
 	return models.WebSocketMessage{
 		Type: models.MessageTypeMapUpdate,
-		Data: map[string]interface{}{
-			"obstacles": obstacles,
-			"width":     MapSize,
-			"height":    MapSize,
+		Data: models.MapUpdateData{
+			Obstacles: obstacles,
+			Width:     MapSize,
+			Height:    MapSize,
 		},
 		Timestamp: time.Now().UnixMilli(),
 	}
@@ -175,36 +175,31 @@ func (sim *AGVSimulator) step() (statusMsg, positionMsg models.WebSocketMessage)
 	return sim.buildBroadcastMessagesLocked()
 }
 
-func flatEnemy(e models.Enemy) map[string]interface{} {
-	return map[string]interface{}{
-		"id":   e.ID,
-		"name": e.Name,
-		"hp":   e.HP,
-		"x":    e.Position.X,
-		"y":    e.Position.Y,
-	}
+func enemyData(e models.Enemy) models.EnemyData {
+	return models.EnemyData{ID: e.ID, Name: e.Name, HP: e.HP, X: e.Position.X, Y: e.Position.Y}
 }
 
 func (sim *AGVSimulator) buildBroadcastMessagesLocked() (statusMsg, positionMsg models.WebSocketMessage) {
-	flatEnemies := make([]map[string]interface{}, len(sim.status.DetectedEnemies))
+	detected := make([]models.EnemyData, len(sim.status.DetectedEnemies))
 	for i, enemy := range sim.status.DetectedEnemies {
-		flatEnemies[i] = flatEnemy(enemy)
+		detected[i] = enemyData(enemy)
 	}
-	var flatTarget map[string]interface{}
+	var target *models.EnemyData
 	if sim.status.TargetEnemy != nil {
-		flatTarget = flatEnemy(*sim.status.TargetEnemy)
+		t := enemyData(*sim.status.TargetEnemy)
+		target = &t
 	}
 
 	now := time.Now()
 	statusMsg = models.WebSocketMessage{
 		Type: models.MessageTypeStatus,
-		Data: map[string]interface{}{
-			"battery":          sim.status.Battery,
-			"speed":            sim.status.Speed,
-			"mode":             sim.status.Mode,
-			"state":            sim.status.State,
-			"detected_enemies": flatEnemies,
-			"target_enemy":     flatTarget,
+		Data: models.StatusData{
+			Battery:         sim.status.Battery,
+			Speed:           sim.status.Speed,
+			Mode:            sim.status.Mode,
+			State:           sim.status.State,
+			DetectedEnemies: detected,
+			TargetEnemy:     target,
 		},
 		Timestamp: now.UnixMilli(),
 	}

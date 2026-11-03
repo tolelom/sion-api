@@ -40,13 +40,6 @@ func (g *Grid) AddObstacle(x, y int) {
 	}
 }
 
-func (g *Grid) IsObstacle(x, y int) bool {
-	if !g.inBounds(x, y) {
-		return false
-	}
-	return g.obstacles[g.idx(x, y)]
-}
-
 func (g *Grid) IsValid(x, y int) bool {
 	return g.inBounds(x, y) && !g.obstacles[g.idx(x, y)]
 }

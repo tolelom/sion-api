@@ -80,7 +80,7 @@ func (sim *AGVSimulator) moveTowardsLocked(targetX, targetY float64) bool {
 }
 
 func (sim *AGVSimulator) randomWalkLocked() {
-	if rand.Float64() < turnChance {
+	if rand.Float64() < randomWalkTurnChance {
 		sim.status.Position.Angle = rand.Float64() * 2 * math.Pi
 	}
 	stepLen := sim.stepLengthLocked()
@@ -121,7 +121,7 @@ func (sim *AGVSimulator) attackTargetLocked() {
 }
 
 func (sim *AGVSimulator) consumeBatteryLocked() {
-	if sim.status.Speed > 0 && sim.tick%batteryDrainTicks == 0 {
+	if sim.status.Speed > 0 && sim.tick%movingTicksPerBatteryPercent == 0 {
 		sim.status.Battery--
 	}
 	if sim.status.Battery <= 0 {
@@ -138,7 +138,7 @@ func (sim *AGVSimulator) clampPositionLocked() {
 }
 
 func (sim *AGVSimulator) stepLengthLocked() float64 {
-	return sim.status.Speed * stepPerSpeed
+	return sim.status.Speed * defaultTickSeconds
 }
 
 func (sim *AGVSimulator) distanceToLocked(x, y float64) float64 {

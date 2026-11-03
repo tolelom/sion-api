@@ -5,8 +5,6 @@ import (
 	"math"
 )
 
-// Point는 외부 API 호환을 위해 float64 좌표를 유지한다.
-// 내부 그리드는 입력을 int로 캐스팅해 셀 단위로 다룬다.
 type Point struct {
 	X float64 `json:"x"`
 	Y float64 `json:"y"`
@@ -15,7 +13,7 @@ type Point struct {
 type Grid struct {
 	Width     int
 	Height    int
-	obstacles []bool // y*Width + x
+	obstacles []bool
 }
 
 func NewGrid(width, height int) *Grid {
@@ -44,8 +42,7 @@ func (g *Grid) IsValid(x, y int) bool {
 	return g.inBounds(x, y) && !g.obstacles[g.idx(x, y)]
 }
 
-// 8방향 이동 (dx, dy)
-var directions8 = [8][2]int{
+var neighborOffsets = [8]struct{ dx, dy int }{
 	{1, 0}, {-1, 0}, {0, 1}, {0, -1},
 	{1, 1}, {-1, 1}, {1, -1}, {-1, -1},
 }
@@ -76,10 +73,8 @@ func (pq *priorityQueue) Pop() any {
 	return it
 }
 
-// FindPath는 8방향 그리드에서 start→goal 최단 경로를 찾아 반환한다.
-// 좌표는 입력 시 내림해 셀 단위로 처리된다.
-//   - start == goal (같은 셀, 통과 가능): [start] 반환
-//   - 경로 없음 / start·goal이 범위 밖이거나 장애물: nil 반환
+// FindPath는 좌표를 내림한 셀 기준으로 8방향 최단 경로를 돌려준다.
+// 갈 수 없으면 nil, start와 goal이 같은 셀이면 그 셀 하나만 담는다.
 func (g *Grid) FindPath(start, goal Point) []Point {
 	sx, sy := int(math.Floor(start.X)), int(math.Floor(start.Y))
 	gx, gy := int(math.Floor(goal.X)), int(math.Floor(goal.Y))
@@ -113,7 +108,6 @@ func (g *Grid) FindPath(start, goal Point) []Point {
 		cur := heap.Pop(pq).(*pqItem)
 		curIdx := g.idx(cur.x, cur.y)
 
-		// 동일 셀에 대한 stale 항목은 건너뜀
 		if closed[curIdx] {
 			continue
 		}
@@ -123,8 +117,8 @@ func (g *Grid) FindPath(start, goal Point) []Point {
 			return reconstructPath(parent, startIdx, goalIdx, W)
 		}
 
-		for _, d := range directions8 {
-			nx, ny := cur.x+d[0], cur.y+d[1]
+		for _, d := range neighborOffsets {
+			nx, ny := cur.x+d.dx, cur.y+d.dy
 			if !g.IsValid(nx, ny) {
 				continue
 			}
@@ -134,8 +128,8 @@ func (g *Grid) FindPath(start, goal Point) []Point {
 			}
 
 			step := 1.0
-			if d[0] != 0 && d[1] != 0 {
-				if !g.IsValid(cur.x+d[0], cur.y) || !g.IsValid(cur.x, cur.y+d[1]) {
+			if d.dx != 0 && d.dy != 0 {
+				if !g.IsValid(cur.x+d.dx, cur.y) || !g.IsValid(cur.x, cur.y+d.dy) {
 					continue
 				}
 				step = math.Sqrt2

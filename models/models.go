@@ -41,8 +41,6 @@ type PositionData struct {
 }
 
 type AGVStatus struct {
-	ID              string       `json:"id"`
-	Name            string       `json:"name"`
 	Position        PositionData `json:"position"`
 	Mode            string       `json:"mode"`
 	State           string       `json:"state"`

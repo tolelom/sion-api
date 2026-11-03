@@ -17,9 +17,6 @@ const (
 	detectionRange = 10.0
 	attackRange    = 2.0
 
-	agvID   = "sion-001"
-	agvName = "사이온"
-
 	defaultUpdateInterval = 500 * time.Millisecond
 	defaultTickSeconds    = float64(defaultUpdateInterval) / float64(time.Second)
 	cruiseSpeed           = 1.0
@@ -70,8 +67,6 @@ func NewAGVSimulator(broadcast func(models.WebSocketMessage), hasListeners func(
 
 func initialStatus() *models.AGVStatus {
 	return &models.AGVStatus{
-		ID:       agvID,
-		Name:     agvName,
 		Position: models.PositionData{X: startX, Y: startY},
 		Mode:     models.ModeAuto,
 		State:    models.StateIdle,

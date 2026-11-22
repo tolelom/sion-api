@@ -1,9 +1,6 @@
 # Binaries
 *.exe
 *.exe~
-*.dll
-*.so
-*.dylib
 sion-backend
 sion-backend.exe
 
@@ -23,19 +20,9 @@ go.work
 
 # IDE
 .vscode/
-.idea/
 *.swp
 *.swo
 *~
 
 # OS
-.DS_Store
 Thumbs.db
-
-# Logs
-*.log
-logs/
-
-# Temporary files
-tmp/
-temp/

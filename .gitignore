@@ -3,6 +3,7 @@
 *.exe~
 sion-backend
 sion-backend.exe
+/server
 
 # Test binary
 *.test
@@ -17,12 +18,3 @@ go.work
 .env
 .env.local
 .env.*.local
-
-# IDE
-.vscode/
-*.swp
-*.swo
-*~
-
-# OS
-Thumbs.db

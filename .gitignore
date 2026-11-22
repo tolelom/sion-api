@@ -1,11 +1,9 @@
 # Binaries
 *.exe
 *.exe~
-*.dll
-*.so
-*.dylib
 sion-backend
 sion-backend.exe
+/server
 
 # Test binary
 *.test
@@ -20,22 +18,3 @@ go.work
 .env
 .env.local
 .env.*.local
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
-logs/
-
-# Temporary files
-tmp/
-temp/

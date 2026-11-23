@@ -30,6 +30,6 @@ sion-web과 주고받는 모양은 `contract/`가 정합니다.
 
 ## 배포
 
-GitHub Actions(`.github/workflows/backend-ci-cd.yml`)가 PR과 push마다 정적 검사, 테스트, arm64 빌드를 돌립니다. `main`·`master`에 push하면 arm64 이미지 `ghcr.io/tolelom/sion-api:latest`, `ghcr.io/tolelom/sion-api:main`을 올립니다.
+GitHub Actions(`.github/workflows/ci.yml`)가 PR과 push마다 정적 검사, 테스트, arm64 빌드를 돌립니다. `main`·`master`에 push하면 arm64 이미지 `ghcr.io/tolelom/sion-api:latest`, `ghcr.io/tolelom/sion-api:main`을 올립니다.
 
 `.github/workflows/vuln.yml`은 `main` push, PR, 매주 월요일에 govulncheck를 돌려 호출 경로에 알려진 취약점이 있으면 실패합니다.

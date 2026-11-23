@@ -4,8 +4,11 @@ on:
   push:
     branches:
       - main
-      - master
   pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build-deploy:
